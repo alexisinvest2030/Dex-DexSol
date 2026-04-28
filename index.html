@@ -299,19 +299,15 @@ async function runScan(){
   let liveCount = 0;
   const delay = ms => new Promise(r => setTimeout(r, ms));
 
-  // Batch 2 tokeni cu 800ms delay între batch-uri — evităm 429 Jupiter
-  for(let i=0; i<TOKENS.length; i+=2){
-    const batch = TOKENS.slice(i, i+2);
+  // Tokeni unul câte unul cu 1.2s delay — evităm 429 Jupiter (10 req/s free tier)
+  for(let i=0; i<TOKENS.length; i+=1){
+    const batch = TOKENS.slice(i, i+1);
     await Promise.all(batch.map(async tk=>{
       const cex = wsPrices[tk.sym];
 
-      // Fetch toate DEX-urile în paralel
-      const [jup, orca, kam, met] = await Promise.all([
-        getJupQuote(tk),
-        getOrcaQuote(tk),
-        getKaminoQuote(tk),
-        getMeteoraQuote(tk),
-      ]);
+      // Doar Jupiter funcționează — Orca/Kamino/Meteora blochează toate datacenter-urile
+      const jup  = await getJupQuote(tk);
+      const orca = null, kam = null, met = null;
 
       // Sanity check: ignorăm prețuri care diferă cu >80% față de CEX
       const cexMid = cex?.mid || 0;
@@ -354,7 +350,7 @@ async function runScan(){
         if(o.spread > 0.1) opps.push(o);
       }
     }));
-    if(i + 2 < TOKENS.length) await delay(600); // 600ms între batch-uri
+    if(i + 1 < TOKENS.length) await delay(1200); // 1.2s între tokeni
   }
 
   allOpps = opps.sort((a,b)=>b.netPct-a.netPct);
@@ -370,14 +366,11 @@ async function runScan(){
   document.getElementById('scan-btn').textContent = '⟳ SCAN NOW';
 
   // Update API status ORCA/KAMINO/METEORA
-  const hasJup  = Object.values(dexPrices).some(d=>d['JUP']);
-  const hasOrca = Object.values(dexPrices).some(d=>d['ORCA']);
-  const hasKam  = Object.values(dexPrices).some(d=>d['KAMINO']);
-  const hasMet  = Object.values(dexPrices).some(d=>d['METEORA']);
-  setApi('jup',  hasJup  ? `OK ${Object.values(dexPrices).filter(d=>d['JUP']).length}tk`    : 'ERR',   hasJup  ?'ok':'err');
-  setApi('orca', hasOrca ? `OK ${Object.values(dexPrices).filter(d=>d['ORCA']).length}tk`   : 'CORS',  hasOrca ?'ok':'warn');
-  setApi('kam',  hasKam  ? `OK ${Object.values(dexPrices).filter(d=>d['KAMINO']).length}tk` : 'CORS',  hasKam  ?'ok':'warn');
-  setApi('met',  hasMet  ? `OK ${Object.values(dexPrices).filter(d=>d['METEORA']).length}tk`: 'CORS',  hasMet  ?'ok':'warn');
+  const hasJup = Object.values(dexPrices).some(d=>d['JUP']);
+  setApi('jup',  hasJup ? `OK ${Object.values(dexPrices).filter(d=>d['JUP']).length}tk` : 'ERR', hasJup?'ok':'err');
+  setApi('orca', 'N/A', 'warn');
+  setApi('kam',  'N/A', 'warn');
+  setApi('met',  'N/A', 'warn');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -493,7 +486,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 // ═══════════════════════════════════════════════════════
 // AUTO SCAN
 // ═══════════════════════════════════════════════════════
-let autoSec = 15; // 15s între scanuri ca să nu depășim rate limit Jupiter
+let autoSec = 30; // 30s între scanuri — Jupiter rate limit 10 req/s free tier
 function startAuto(){
   let cnt = autoSec;
   autoTimer = setInterval(()=>{
