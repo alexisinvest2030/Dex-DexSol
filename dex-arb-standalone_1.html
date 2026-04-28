@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DEX·ARB SCANNER v1.1 — Solana</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
+:root {
+  --bg:#080c10; --bg2:#0d1420; --bg3:#121a26;
+  --border:#1e2d3d; --accent:#00d4aa; --accent2:#0088ff;
+  --red:#ff3a5c; --yellow:#f5c842; --green:#00d4aa;
+  --text:#c8d8e8; --text2:#6a8a9a;
+  --font-mono:'JetBrains Mono',monospace;
+  --font-ui:'Rajdhani',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:var(--font-mono);font-size:12px;min-height:100vh}
+/* HEADER */
+.hdr{background:var(--bg2);border-bottom:2px solid var(--border);padding:10px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.logo{font-family:var(--font-ui);font-size:20px;font-weight:700;letter-spacing:3px;color:var(--accent);display:flex;align-items:center;gap:10px}
+.logo-dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 10px var(--accent)}50%{opacity:.3;box-shadow:0 0 3px var(--accent)}}
+.hdr-apis{display:flex;gap:8px;flex-wrap:wrap}
+.api-pill{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;border:1px solid var(--border);font-family:var(--font-ui);font-size:11px;font-weight:600;letter-spacing:1px;color:var(--text2)}
+.api-pill.ok{border-color:var(--green);color:var(--green)}
+.api-pill.err{border-color:var(--red);color:var(--red)}
+.api-pill.warn{border-color:var(--yellow);color:var(--yellow)}
+.api-dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+/* STATS */
+.stats{background:var(--bg3);border-bottom:1px solid var(--border);padding:10px 18px;display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+.stat{display:flex;flex-direction:column;gap:2px}
+.stat-l{font-size:9px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase}
+.stat-v{font-family:var(--font-ui);font-size:20px;font-weight:700;color:var(--text)}
+.stat-v.g{color:var(--green)}.stat-v.r{color:var(--red)}.stat-v.y{color:var(--yellow)}
+.scan-btn{margin-left:auto;padding:8px 20px;background:transparent;border:1px solid var(--accent);border-radius:6px;color:var(--accent);font-family:var(--font-ui);font-size:13px;font-weight:700;letter-spacing:1px;cursor:pointer;transition:all .15s}
+.scan-btn:hover{background:rgba(0,212,170,.1)}
+/* CONTROLS */
+.ctrl{padding:10px 18px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--border);background:var(--bg2)}
+.tab-btn{padding:5px 14px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-family:var(--font-mono);font-size:11px;transition:all .15s}
+.tab-btn.active,.tab-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(0,212,170,.07)}
+.sep{width:1px;height:20px;background:var(--border);margin:0 4px}
+label{font-size:10px;color:var(--text2)}
+input[type=number]{width:56px;padding:4px 7px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--font-mono);font-size:11px;text-align:center}
+input[type=number]:focus{outline:none;border-color:var(--accent)}
+.auto-badge{margin-left:auto;font-size:10px;color:var(--text2)}
+.auto-badge span{color:var(--accent)}
+/* TABLE */
+.tbl-wrap{padding:12px 18px;overflow-x:auto}
+.tbl{width:100%;border-collapse:collapse;min-width:700px}
+.tbl th{font-family:var(--font-ui);font-size:10px;font-weight:600;letter-spacing:1.5px;color:var(--text2);text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+.tbl td{padding:8px 10px;border-bottom:1px solid rgba(30,45,61,.5);vertical-align:middle;white-space:nowrap}
+.tbl tr:hover td{background:rgba(255,255,255,.02)}
+.tok{display:flex;align-items:center;gap:8px}
+.tok-sym{font-family:var(--font-ui);font-size:15px;font-weight:700;color:var(--text)}
+.tok-chain{font-size:9px;padding:2px 5px;border-radius:3px;background:var(--bg3);color:var(--text2);border:1px solid var(--border)}
+.dir-badge{padding:3px 8px;border-radius:4px;font-family:var(--font-ui);font-size:10px;font-weight:700;letter-spacing:.5px}
+.dir-badge.dc{background:rgba(0,212,170,.12);color:var(--green);border:1px solid rgba(0,212,170,.3)}
+.dir-badge.cd{background:rgba(0,136,255,.12);color:var(--accent2);border:1px solid rgba(0,136,255,.3)}
+.dir-badge.dd{background:rgba(245,200,66,.12);color:var(--yellow);border:1px solid rgba(245,200,66,.3)}
+.price{font-size:11px;color:var(--text)}
+.price small{color:var(--text2);font-size:9px}
+.spread-cell{font-family:var(--font-ui);font-size:15px;font-weight:700;color:var(--yellow)}
+.net-pos{font-family:var(--font-ui);font-size:15px;font-weight:700;color:var(--green)}
+.net-neg{font-family:var(--font-ui);font-size:15px;font-weight:700;color:var(--red)}
+.src-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.src-live{background:var(--green);box-shadow:0 0 5px var(--green)}
+.src-jup{background:var(--accent2)}
+.src-cg{background:var(--yellow)}
+.src-sim{background:var(--text2)}
+.act-btn{padding:4px 12px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-size:10px;transition:all .15s}
+.act-btn:hover{border-color:var(--accent);color:var(--accent)}
+.no-data{text-align:center;padding:50px;color:var(--text2)}
+.no-data .big{font-family:var(--font-ui);font-size:48px;font-weight:700;color:var(--border);display:block;margin-bottom:12px}
+/* ALERTS */
+.alerts-box{position:fixed;bottom:16px;right:16px;width:320px;display:flex;flex-direction:column;gap:6px;z-index:100;pointer-events:none}
+.alert{padding:10px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);font-size:11px;line-height:1.5;animation:slideIn .2s ease}
+@keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
+.alert.g{border-color:var(--green);color:var(--green)}
+.alert.r{border-color:var(--red);color:var(--red)}
+.alert.y{border-color:var(--yellow);color:var(--yellow)}
+/* FOOTER */
+.ftr{border-top:1px solid var(--border);padding:8px 18px;display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--text2);background:var(--bg2)}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.1 — Solana</span></div>
+  <div class="hdr-apis">
+    <div class="api-pill warn" id="api-bnb"><div class="api-dot"></div><span id="api-bnb-txt">BNB WS</span></div>
+    <div class="api-pill warn" id="api-jup"><div class="api-dot"></div><span id="api-jup-txt">JUPITER</span></div>
+    <div class="api-pill warn" id="api-orca"><div class="api-dot"></div><span id="api-orca-txt">ORCA</span></div>
+    <div class="api-pill warn" id="api-kam"><div class="api-dot"></div><span id="api-kam-txt">KAMINO</span></div>
+    <div class="api-pill warn" id="api-met"><div class="api-dot"></div><span id="api-met-txt">METEORA</span></div>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stat"><div class="stat-l">Profitabile</div><div class="stat-v g" id="s-prof">0</div></div>
+  <div class="stat"><div class="stat-l">Marginale</div><div class="stat-v y" id="s-marg">0</div></div>
+  <div class="stat"><div class="stat-l">Best Spread</div><div class="stat-v" id="s-spread">—</div></div>
+  <div class="stat"><div class="stat-l">Best Net</div><div class="stat-v g" id="s-net">—</div></div>
+  <div class="stat"><div class="stat-l">Tokeni Live</div><div class="stat-v" id="s-live">0</div></div>
+  <div class="stat"><div class="stat-l">Scanuri</div><div class="stat-v" id="s-scans">0</div></div>
+  <button class="scan-btn" id="scan-btn" onclick="runScan()">⟳ SCAN NOW</button>
+</div>
+
+<!-- CONTROLS -->
+<div class="ctrl">
+  <button class="tab-btn active" data-f="ALL">ALL</button>
+  <button class="tab-btn" data-f="DEX→CEX">DEX→CEX</button>
+  <button class="tab-btn" data-f="CEX→DEX">CEX→DEX</button>
+  <button class="tab-btn" data-f="DEX→DEX">DEX→DEX</button>
+  <div class="sep"></div>
+  <label>MIN% <input type="number" id="min-pct" value="0.30" step="0.05" min="0.1" max="5" onchange="renderTable()"></label>
+  <label>TRADE$ <input type="number" id="trade-sz" value="500" step="100" min="100" onchange="renderTable()"></label>
+  <label><input type="checkbox" id="profit-only" onchange="renderTable()"> Profit+</label>
+  <div class="auto-badge">Auto: <span id="auto-t">8s</span></div>
+</div>
+
+<!-- TABLE -->
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>TOKEN</th>
+        <th>TIP ARB</th>
+        <th>CUMPĂRĂ PE</th>
+        <th>PREȚ BUY</th>
+        <th>VINDE PE</th>
+        <th>PREȚ SELL</th>
+        <th>SPREAD</th>
+        <th>NET*</th>
+        <th>ACT</th>
+      </tr>
+    </thead>
+    <tbody id="tbl-body">
+      <tr><td colspan="9" class="no-data"><span class="big">◎</span>Aștept date... apasă SCAN NOW</td></tr>
+    </tbody>
+  </table>
+</div>
+<div style="padding:4px 18px 12px;font-size:9px;color:var(--text2)">
+  * Net = Gross − (Binance 0.075%×2) − Withdraw fee − Gas − Slippage
+</div>
+
+<!-- ALERTS -->
+<div class="alerts-box" id="alerts-box"></div>
+
+<!-- FOOTER -->
+<div class="ftr">
+  <span>DEX·ARB SCANNER v1.1 — DRY RUN — IP Rezidential</span>
+  <span id="ftr-time">—</span>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const CEX_FEE   = 0.00075;
+let   TRADE     = 500;
+let   MIN_PCT   = 0.30;
+let   currentFilter = 'ALL';
+
+// Tokeni SOL top 10
+const TOKENS = [
+  {sym:'SOL',    mint:'So11111111111111111111111111111111111111112',  pair:'SOLUSDC', dec:9,  wFee:0.10, gas:0.001, tier:'tier1'},
+  {sym:'RAY',    mint:'4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',pair:'RAYUSDC', dec:6,  wFee:0.30, gas:0.001, tier:'tier3'},
+  {sym:'JUP',    mint:'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', pair:'JUPUSDC', dec:6,  wFee:0.30, gas:0.001, tier:'tier3'},
+  {sym:'WIF',    mint:'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm',pair:'WIFUSDC', dec:6,  wFee:0.30, gas:0.001, tier:'tier2'},
+  {sym:'BONK',   mint:'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',pair:'BONKUSDC',dec:5,  wFee:0.30, gas:0.001, tier:'tier3'},
+  {sym:'PYTH',   mint:'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3', pair:'PYTHUSDC',dec:6,  wFee:0.30, gas:0.001, tier:'tier3'},
+  {sym:'JITO',   mint:'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', pair:'JITOUSDC',dec:9,  wFee:0.30, gas:0.001, tier:'tier3'},
+  {sym:'ORCA',   mint:'orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE',  pair:'ORCAUSDC',dec:6,  wFee:0.30, gas:0.001, tier:'tier3'},
+  {sym:'PENGU',  mint:'2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv', pair:'PENGUUSDC',dec:6, wFee:0.30, gas:0.001, tier:'tier4'},
+  {sym:'TRUMP',  mint:'6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN', pair:'TRUMPUSDC',dec:6, wFee:0.30, gas:0.001, tier:'tier3'},
+];
+
+// Slippage dinamic
+const SLIP_BASE = {tier1:0.0004,tier2:0.0012,tier3:0.0030,tier4:0.0070,tier5:0.0150};
+function dynSlip(tier){return SLIP_BASE[tier||'tier4']*Math.sqrt(TRADE/500);}
+
+// State
+let wsPrices  = {};   // {SYM:{bid,ask,mid}}
+let dexPrices = {};   // {SYM:{jup,orca,kam,met}}
+let allOpps   = [];
+let scanN     = 0;
+let wsReady   = false;
+let autoTimer = null;
+
+// ═══════════════════════════════════════════════════════
+// BINANCE WEBSOCKET
+// ═══════════════════════════════════════════════════════
+function connectWS(){
+  const streams = TOKENS.map(t=>t.pair.toLowerCase()+'@bookTicker').join('/');
+  const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+  ws.onopen  = ()=>{ wsReady=true; setApi('bnb','WS LIVE','ok'); addAlert('g','Binance WS conectat'); };
+  ws.onclose = ()=>{ wsReady=false; setApi('bnb','RECONECT','warn'); setTimeout(connectWS,3000); };
+  ws.onerror = ()=>{ setApi('bnb','WS ERR','err'); };
+  ws.onmessage = e=>{
+    try{
+      const d = JSON.parse(e.data).data || JSON.parse(e.data);
+      if(!d.s) return;
+      const sym = d.s.replace('USDC','');
+      const bid = parseFloat(d.b), ask = parseFloat(d.a);
+      wsPrices[sym] = {bid, ask, mid:(bid+ask)/2};
+    }catch(_){}
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// DEX QUOTES
+// ═══════════════════════════════════════════════════════
+async function safeGet(url, timeout=6000){
+  try{
+    const r = await fetch(url,{signal:AbortSignal.timeout(timeout)});
+    if(!r.ok) return null;
+    return await r.json();
+  }catch(_){return null;}
+}
+
+async function getJupQuote(tk){
+  const amt = Math.round(TRADE * 1e6); // USDC input in microUSDC
+  const d = await safeGet(`https://lite-api.jup.ag/swap/v1/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&amount=${amt}&slippageBps=50`);
+  if(!d?.outAmount||!d?.inAmount) return null;
+  // inAmount  = USDC smallest units (6 dec)
+  // outAmount = token smallest units (tk.dec decimals)
+  const usdcIn   = parseInt(d.inAmount)  / 1e6;          // USDC
+  const tokOut   = parseInt(d.outAmount) / Math.pow(10, tk.dec); // tokens
+  if(tokOut <= 0) return null;
+  return usdcIn / tokOut; // USDC per token = preț corect
+}
+
+async function getOrcaQuote(tk){
+  const amt = Math.round(TRADE * 1e6);
+  const d = await safeGet(`https://api.mainnet.orca.so/v2/solana/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&inputAmount=${amt}&slippageBps=50`);
+  if(!d||d.lasterror) return null;
+  const out = d.outAmount||d.estimatedAmountOut;
+  if(!out) return null;
+  const usdcIn = amt / 1e6;
+  const tokOut = parseInt(out) / Math.pow(10, tk.dec);
+  if(tokOut <= 0) return null;
+  return usdcIn / tokOut;
+}
+
+async function getKaminoQuote(tk){
+  const amt = Math.round(TRADE * 1e6);
+  const d = await safeGet(`https://api.kamino.finance/v2/solana/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&inputAmount=${amt}`);
+  const out = d?.outAmount||d?.outputAmount;
+  if(!out) return null;
+  const usdcIn = amt / 1e6;
+  const tokOut = parseInt(out) / Math.pow(10, tk.dec);
+  if(tokOut <= 0) return null;
+  return usdcIn / tokOut;
+}
+
+async function getMeteoraQuote(tk){
+  const amt = Math.round(TRADE * 1e6);
+  const d = await safeGet(`https://api.meteora.ag/swap/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&inAmount=${amt}`);
+  const out = d?.outAmount||d?.out_amount;
+  if(!out) return null;
+  const usdcIn = amt / 1e6;
+  const tokOut = parseInt(out) / Math.pow(10, tk.dec);
+  if(tokOut <= 0) return null;
+  return usdcIn / tokOut;
+}
+
+// ═══════════════════════════════════════════════════════
+// CALC ARB
+// ═══════════════════════════════════════════════════════
+function calcOpp(tk, buyPrice, sellPrice, buyDex, sellDex, dir){
+  const spread = ((sellPrice - buyPrice) / buyPrice) * 100;
+  const gross  = TRADE * (spread / 100);
+  const slip   = TRADE * dynSlip(tk.tier);
+  const fees   = TRADE * CEX_FEE * 2 + tk.wFee + tk.gas + slip;
+  const net    = gross - fees;
+  const netPct = (net / TRADE) * 100;
+  return {tk, buyPrice, sellPrice, buyDex, sellDex, dir, spread, gross, net, netPct, fees};
+}
+
+// ═══════════════════════════════════════════════════════
+// MAIN SCAN
+// ═══════════════════════════════════════════════════════
+async function runScan(){
+  scanN++;
+  document.getElementById('s-scans').textContent = scanN;
+  document.getElementById('scan-btn').textContent = '⟳ SCANNING...';
+  document.getElementById('ftr-time').textContent = new Date().toLocaleTimeString('ro-RO');
+
+  const opps = [];
+  let liveCount = 0;
+
+  // Batch 3 tokeni în paralel
+  for(let i=0; i<TOKENS.length; i+=3){
+    const batch = TOKENS.slice(i, i+3);
+    await Promise.all(batch.map(async tk=>{
+      const cex = wsPrices[tk.sym];
+
+      // Fetch toate DEX-urile în paralel
+      const [jup, orca, kam, met] = await Promise.all([
+        getJupQuote(tk),
+        getOrcaQuote(tk),
+        getKaminoQuote(tk),
+        getMeteoraQuote(tk),
+      ]);
+
+      // Sanity check: ignorăm prețuri care diferă cu >50% față de CEX
+      const cexMid = cex?.mid || 0;
+      function sane(p){ return p && isFinite(p) && p > 0 && (!cexMid || (p > cexMid*0.5 && p < cexMid*1.5)); }
+
+      const dexMap = {};
+      if(sane(jup))  dexMap['JUP']     = jup;
+      if(sane(orca)) dexMap['ORCA']    = orca;
+      if(sane(kam))  dexMap['KAMINO']  = kam;
+      if(sane(met))  dexMap['METEORA'] = met;
+
+      dexPrices[tk.sym] = dexMap;
+      if(Object.keys(dexMap).length > 0) liveCount++;
+
+      const dexList = Object.entries(dexMap); // [[name, price], ...]
+      if(!dexList.length) return;
+
+      const cheapestDex  = dexList.reduce((a,b)=>a[1]<b[1]?a:b);
+      const expensiveDex = dexList.reduce((a,b)=>a[1]>b[1]?a:b);
+
+      // ── CEX→DEX: cumperi Binance (ask), vinzi pe DEX scump ──
+      if(cex && expensiveDex[1] > cex.ask){
+        const o = calcOpp(tk, cex.ask, expensiveDex[1], 'BINANCE', expensiveDex[0], 'CEX→DEX');
+        if(o.spread > 0) opps.push(o);
+      }
+
+      // ── DEX→CEX: cumperi DEX ieftin, vinzi Binance (bid) ──
+      if(cex && cex.bid > cheapestDex[1]){
+        const o = calcOpp(tk, cheapestDex[1], cex.bid, cheapestDex[0], 'BINANCE', 'DEX→CEX');
+        if(o.spread > 0) opps.push(o);
+      }
+
+      // ── DEX→DEX: cumperi ieftin, vinzi scump pe alt DEX ──
+      if(dexList.length >= 2 && cheapestDex[0] !== expensiveDex[0]){
+        const o = calcOpp(tk, cheapestDex[1], expensiveDex[1], cheapestDex[0], expensiveDex[0], 'DEX→DEX');
+        if(o.spread > 0.1) opps.push(o);
+      }
+    }));
+  }
+
+  allOpps = opps.sort((a,b)=>b.netPct-a.netPct);
+  document.getElementById('s-live').textContent = liveCount;
+
+  // Alert pentru oportunități profitabile noi
+  const profitable = allOpps.filter(o=>o.netPct>MIN_PCT);
+  if(profitable.length > 0){
+    addAlert('g', `${profitable.length} oportunitate(i) > ${MIN_PCT}% — Best: ${profitable[0].tk.sym} ${profitable[0].dir} ${profitable[0].netPct.toFixed(2)}%`);
+  }
+
+  renderTable();
+  document.getElementById('scan-btn').textContent = '⟳ SCAN NOW';
+
+  // Update API status ORCA/KAMINO/METEORA
+  const hasOrca = Object.values(dexPrices).some(d=>d['ORCA']);
+  const hasKam  = Object.values(dexPrices).some(d=>d['KAMINO']);
+  const hasMet  = Object.values(dexPrices).some(d=>d['METEORA']);
+  const hasJup  = Object.values(dexPrices).some(d=>d['JUP']);
+  setApi('jup',  hasJup  ? `OK ${Object.values(dexPrices).filter(d=>d['JUP']).length}tk`    : 'BLOCK', hasJup  ?'ok':'err');
+  setApi('orca', hasOrca ? `OK ${Object.values(dexPrices).filter(d=>d['ORCA']).length}tk`   : 'BLOCK', hasOrca ?'ok':'err');
+  setApi('kam',  hasKam  ? `OK ${Object.values(dexPrices).filter(d=>d['KAMINO']).length}tk` : 'BLOCK', hasKam  ?'ok':'err');
+  setApi('met',  hasMet  ? `OK ${Object.values(dexPrices).filter(d=>d['METEORA']).length}tk`: 'BLOCK', hasMet  ?'ok':'err');
+}
+
+// ═══════════════════════════════════════════════════════
+// RENDER TABLE
+// ═══════════════════════════════════════════════════════
+function renderTable(){
+  TRADE   = parseFloat(document.getElementById('trade-sz').value)||500;
+  MIN_PCT = parseFloat(document.getElementById('min-pct').value)||0.30;
+  const profitOnly = document.getElementById('profit-only').checked;
+
+  let filtered = allOpps.filter(o=>{
+    if(currentFilter !== 'ALL' && o.dir !== currentFilter) return false;
+    if(profitOnly && o.netPct <= 0) return false;
+    return o.spread >= 0;
+  });
+
+  const profitable = filtered.filter(o=>o.netPct > MIN_PCT);
+  const marginal   = filtered.filter(o=>o.netPct <= MIN_PCT && o.netPct > 0);
+  const negative   = filtered.filter(o=>o.netPct <= 0);
+
+  document.getElementById('s-prof').textContent = profitable.length;
+  document.getElementById('s-marg').textContent = marginal.length;
+
+  if(profitable.length > 0){
+    document.getElementById('s-spread').textContent = profitable[0].spread.toFixed(3)+'%';
+    document.getElementById('s-net').textContent = '+$'+profitable[0].net.toFixed(2);
+  } else {
+    document.getElementById('s-spread').textContent = '—';
+    document.getElementById('s-net').textContent = '—';
+  }
+
+  const tbody = document.getElementById('tbl-body');
+
+  if(filtered.length === 0){
+    tbody.innerHTML = `<tr><td colspan="9" class="no-data"><span class="big">◎</span>Nicio oportunitate ${currentFilter!=='ALL'?'('+currentFilter+')':''} | Threshold: ${MIN_PCT}%</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(o=>{
+    const dirClass = o.dir==='DEX→DEX'?'dd':o.dir==='DEX→CEX'?'dc':'cd';
+    const netClass = o.netPct > MIN_PCT ? 'net-pos' : o.netPct > 0 ? 'net-pos' : 'net-neg';
+    const netStr   = (o.net>=0?'+':'')+'$'+o.net.toFixed(2);
+    const dexInfo  = dexPrices[o.tk.sym] || {};
+    const srcCount = Object.keys(dexInfo).length;
+
+    return `<tr>
+      <td><div class="tok">
+        <span class="tok-sym">${o.tk.sym}</span>
+        <span class="tok-chain">SOL</span>
+        ${srcCount>1?`<span class="tok-chain" style="color:var(--accent)">${srcCount} DEX</span>`:''}
+      </div></td>
+      <td><span class="dir-badge ${dirClass}">${o.dir}</span></td>
+      <td><span style="color:var(--accent2);font-weight:600">${o.buyDex}</span></td>
+      <td><div class="price">$${o.buyPrice.toFixed(o.buyPrice<0.01?6:4)}</div></td>
+      <td><span style="color:var(--green);font-weight:600">${o.sellDex}</span></td>
+      <td><div class="price">$${o.sellPrice.toFixed(o.sellPrice<0.01?6:4)}</div></td>
+      <td><span class="spread-cell">${o.spread.toFixed(3)}%</span></td>
+      <td><span class="${netClass}">${netStr}</span></td>
+      <td>
+        ${o.dir==='DEX→CEX'?`<button class="act-btn" onclick="openDex('${o.tk.sym}','${o.buyDex}')">DEX ↗</button>`:''}
+        ${o.dir==='CEX→DEX'?`<button class="act-btn" onclick="window.open('https://www.binance.com/en/trade/${o.tk.pair}','_blank')">CEX ↗</button>`:''}
+        ${o.dir==='DEX→DEX'?`<button class="act-btn" onclick="openDex('${o.tk.sym}','${o.buyDex}')">BUY ↗</button>`:''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════
+const DEX_URLS = {
+  JUP:     sym=>`https://jup.ag/swap/USDC-${sym}`,
+  ORCA:    sym=>`https://www.orca.so/?tokenIn=USDC&tokenOut=${sym}`,
+  KAMINO:  sym=>`https://kamino.finance/swap/USDC-${sym}`,
+  METEORA: sym=>`https://app.meteora.ag/swap`,
+};
+
+function openDex(sym, dex){
+  const url = DEX_URLS[dex]?.(sym) || `https://jup.ag/swap/USDC-${sym}`;
+  window.open(url, '_blank');
+}
+
+function setApi(id, txt, cls){
+  const el = document.getElementById(`api-${id}`);
+  const sp = document.getElementById(`api-${id}-txt`);
+  if(!el||!sp) return;
+  el.className = `api-pill ${cls}`;
+  sp.textContent = txt;
+}
+
+function addAlert(type, msg){
+  const box = document.getElementById('alerts-box');
+  const el  = document.createElement('div');
+  el.className = `alert ${type}`;
+  el.textContent = msg;
+  box.prepend(el);
+  setTimeout(()=>el.remove(), 8000);
+  if(box.children.length > 5) box.lastChild.remove();
+}
+
+// ═══════════════════════════════════════════════════════
+// FILTER BUTTONS
+// ═══════════════════════════════════════════════════════
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = btn.dataset.f;
+    renderTable();
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// AUTO SCAN
+// ═══════════════════════════════════════════════════════
+let autoSec = 8;
+function startAuto(){
+  let cnt = autoSec;
+  autoTimer = setInterval(()=>{
+    cnt--;
+    document.getElementById('auto-t').textContent = cnt+'s';
+    if(cnt <= 0){ cnt = autoSec; runScan(); }
+  }, 1000);
+}
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+connectWS();
+setTimeout(runScan, 2000); // primul scan după 2s
+startAuto();
+addAlert('y','Conectare Binance WS + DEX APIs...');
+</script>
+</body>
+</html>
