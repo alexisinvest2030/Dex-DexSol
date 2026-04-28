@@ -93,8 +93,7 @@ input[type=number]:focus{outline:none;border-color:var(--accent)}
     <div class="api-pill warn" id="api-jup"><div class="api-dot"></div><span id="api-jup-txt">JUPITER</span></div>
     <div class="api-pill warn" id="api-orca"><div class="api-dot"></div><span id="api-orca-txt">ORCA</span></div>
     <div class="api-pill warn" id="api-kam"><div class="api-dot"></div><span id="api-kam-txt">KAMINO</span></div>
-    <div class="api-pill warn" id="api-met"><div class="api-dot"></div><span id="api-met-txt">METEORA</span></div>
-  </div>
+    <div class="api-pill warn" id="api-met"><div class="api-dot"></div><span id="api-met-txt">METEORA</span></div>  </div>
 </div>
 
 <!-- STATS -->
@@ -292,10 +291,11 @@ async function runScan(){
 
   const opps = [];
   let liveCount = 0;
+  const delay = ms => new Promise(r => setTimeout(r, ms));
 
-  // Batch 3 tokeni în paralel
-  for(let i=0; i<TOKENS.length; i+=3){
-    const batch = TOKENS.slice(i, i+3);
+  // Batch 2 tokeni cu 800ms delay între batch-uri — evităm 429 Jupiter
+  for(let i=0; i<TOKENS.length; i+=2){
+    const batch = TOKENS.slice(i, i+2);
     await Promise.all(batch.map(async tk=>{
       const cex = wsPrices[tk.sym];
 
@@ -348,6 +348,7 @@ async function runScan(){
         if(o.spread > 0.1) opps.push(o);
       }
     }));
+    if(i + 2 < TOKENS.length) await delay(600); // 600ms între batch-uri
   }
 
   allOpps = opps.sort((a,b)=>b.netPct-a.netPct);
@@ -363,14 +364,14 @@ async function runScan(){
   document.getElementById('scan-btn').textContent = '⟳ SCAN NOW';
 
   // Update API status ORCA/KAMINO/METEORA
+  const hasJup  = Object.values(dexPrices).some(d=>d['JUP']);
   const hasOrca = Object.values(dexPrices).some(d=>d['ORCA']);
   const hasKam  = Object.values(dexPrices).some(d=>d['KAMINO']);
   const hasMet  = Object.values(dexPrices).some(d=>d['METEORA']);
-  const hasJup  = Object.values(dexPrices).some(d=>d['JUP']);
-  setApi('jup',  hasJup  ? `OK ${Object.values(dexPrices).filter(d=>d['JUP']).length}tk`    : 'BLOCK', hasJup  ?'ok':'err');
-  setApi('orca', hasOrca ? `OK ${Object.values(dexPrices).filter(d=>d['ORCA']).length}tk`   : 'BLOCK', hasOrca ?'ok':'err');
-  setApi('kam',  hasKam  ? `OK ${Object.values(dexPrices).filter(d=>d['KAMINO']).length}tk` : 'BLOCK', hasKam  ?'ok':'err');
-  setApi('met',  hasMet  ? `OK ${Object.values(dexPrices).filter(d=>d['METEORA']).length}tk`: 'BLOCK', hasMet  ?'ok':'err');
+  setApi('jup',  hasJup  ? `OK ${Object.values(dexPrices).filter(d=>d['JUP']).length}tk`    : 'ERR',   hasJup  ?'ok':'err');
+  setApi('orca', hasOrca ? `OK ${Object.values(dexPrices).filter(d=>d['ORCA']).length}tk`   : 'CORS',  hasOrca ?'ok':'warn');
+  setApi('kam',  hasKam  ? `OK ${Object.values(dexPrices).filter(d=>d['KAMINO']).length}tk` : 'CORS',  hasKam  ?'ok':'warn');
+  setApi('met',  hasMet  ? `OK ${Object.values(dexPrices).filter(d=>d['METEORA']).length}tk`: 'CORS',  hasMet  ?'ok':'warn');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -486,7 +487,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 // ═══════════════════════════════════════════════════════
 // AUTO SCAN
 // ═══════════════════════════════════════════════════════
-let autoSec = 8;
+let autoSec = 15; // 15s între scanuri ca să nu depășim rate limit Jupiter
 function startAuto(){
   let cnt = autoSec;
   autoTimer = setInterval(()=>{
