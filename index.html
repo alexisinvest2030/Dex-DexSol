@@ -164,6 +164,9 @@ let   TRADE     = 500;
 let   MIN_PCT   = 0.30;
 let   currentFilter = 'ALL';
 
+// Cloudflare Worker proxy — rezolvă CORS pentru Orca/Kamino/Meteora
+const PROXY = 'https://ancient-brook-6a39.alexis-invest2030.workers.dev/proxy?url=';
+
 // Tokeni SOL top 10
 const TOKENS = [
   {sym:'SOL',    mint:'So11111111111111111111111111111111111111112',  pair:'SOLUSDC', dec:9,  wFee:0.10, gas:0.001, tier:'tier1'},
@@ -235,8 +238,9 @@ async function getJupQuote(tk){
 
 async function getOrcaQuote(tk){
   const amt = Math.round(TRADE * 1e6);
-  const d = await safeGet(`https://api.mainnet.orca.so/v2/solana/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&inputAmount=${amt}&slippageBps=50`);
-  if(!d||d.lasterror) return null;
+  const target = `https://api.mainnet.orca.so/v2/solana/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&inputAmount=${amt}&slippageBps=50`;
+  const d = await safeGet(PROXY + encodeURIComponent(target));
+  if(!d||d.lasterror||d.error) return null;
   const out = d.outAmount||d.estimatedAmountOut;
   if(!out) return null;
   const usdcIn = amt / 1e6;
@@ -247,7 +251,8 @@ async function getOrcaQuote(tk){
 
 async function getKaminoQuote(tk){
   const amt = Math.round(TRADE * 1e6);
-  const d = await safeGet(`https://api.kamino.finance/v2/solana/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&inputAmount=${amt}`);
+  const target = `https://api.kamino.finance/v2/solana/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&inputAmount=${amt}`;
+  const d = await safeGet(PROXY + encodeURIComponent(target));
   const out = d?.outAmount||d?.outputAmount;
   if(!out) return null;
   const usdcIn = amt / 1e6;
@@ -258,7 +263,8 @@ async function getKaminoQuote(tk){
 
 async function getMeteoraQuote(tk){
   const amt = Math.round(TRADE * 1e6);
-  const d = await safeGet(`https://api.meteora.ag/swap/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&inAmount=${amt}`);
+  const target = `https://api.meteora.ag/swap/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&inAmount=${amt}`;
+  const d = await safeGet(PROXY + encodeURIComponent(target));
   const out = d?.outAmount||d?.out_amount;
   if(!out) return null;
   const usdcIn = amt / 1e6;
