@@ -307,9 +307,13 @@ async function runScan(){
         getMeteoraQuote(tk),
       ]);
 
-      // Sanity check: ignorăm prețuri care diferă cu >50% față de CEX
+      // Sanity check: ignorăm prețuri care diferă cu >80% față de CEX
       const cexMid = cex?.mid || 0;
-      function sane(p){ return p && isFinite(p) && p > 0 && (!cexMid || (p > cexMid*0.5 && p < cexMid*1.5)); }
+      function sane(p){
+        if(!p || !isFinite(p) || p <= 0) return false;
+        if(!cexMid) return true; // fără CEX, acceptăm orice valoare pozitivă
+        return p > cexMid * 0.2 && p < cexMid * 5.0;
+      }
 
       const dexMap = {};
       if(sane(jup))  dexMap['JUP']     = jup;
