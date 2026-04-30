@@ -346,17 +346,16 @@ async function runScan(){
     await Promise.all(batch.map(async tk=>{
       const cex = wsPrices[tk.sym];
 
-      // Fetch toate sursele DEX în paralel
-      const [jup, ray, jupPrice, orca, kam, met] = await Promise.all([
-        getJupQuote(tk),       // Jupiter quote cu slippage real
-        getRaydiumPrice(tk),   // Raydium spot price direct din pool
-        getJupPrice(tk),       // Jupiter price v2 agregat
-        getOrcaQuote(tk),      // Orca (prin proxy — poate merge)
-        getKaminoQuote(tk),    // Kamino (prin proxy — poate merge)
-        getMeteoraQuote(tk),   // Meteora (prin proxy — poate merge)
+      // Fetch surse DEX — Jupiter quote + Raydium spot price
+      // JupPrice v2 blocat CORS de pe GitHub Pages — eliminat
+      const [jup, ray, orca, kam, met] = await Promise.all([
+        getJupQuote(tk),
+        getRaydiumPrice(tk),
+        getOrcaQuote(tk),
+        getKaminoQuote(tk),
+        getMeteoraQuote(tk),
       ]);
 
-      // Sanity check
       const cexMid = cex?.mid || 0;
       function sane(p){
         if(!p || !isFinite(p) || p <= 0) return false;
@@ -365,12 +364,11 @@ async function runScan(){
       }
 
       const dexMap = {};
-      if(sane(jup))      dexMap['JUP']     = jup;
-      if(sane(ray))      dexMap['RAYDIUM'] = ray;
-      if(sane(jupPrice)) dexMap['JUP-P']   = jupPrice;
-      if(sane(orca))     dexMap['ORCA']    = orca;
-      if(sane(kam))      dexMap['KAMINO']  = kam;
-      if(sane(met))      dexMap['METEORA'] = met;
+      if(sane(jup))  dexMap['JUP']     = jup;
+      if(sane(ray))  dexMap['RAYDIUM'] = ray;
+      if(sane(orca)) dexMap['ORCA']    = orca;
+      if(sane(kam))  dexMap['KAMINO']  = kam;
+      if(sane(met))  dexMap['METEORA'] = met;
 
       dexPrices[tk.sym] = dexMap;
       if(Object.keys(dexMap).length > 0) liveCount++;
@@ -399,7 +397,7 @@ async function runScan(){
         if(o.spread > 0.1) opps.push(o);
       }
     }));
-    if(i + 1 < TOKENS.length) await delay(1200); // 1.2s între tokeni
+    if(i + 1 < TOKENS.length) await delay(1800); // 1.8s între tokeni — fix 429
   }
 
   allOpps = opps.sort((a,b)=>b.netPct-a.netPct);
@@ -540,7 +538,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 // ═══════════════════════════════════════════════════════
 // AUTO SCAN
 // ═══════════════════════════════════════════════════════
-let autoSec = 45; // 45s între scanuri — 28 tokeni × 1.2s = ~34s per scan
+let autoSec = 60; // 60s — 28 tokeni × 1.8s = ~50s per scan
 function startAuto(){
   let cnt = autoSec;
   autoTimer = setInterval(()=>{
