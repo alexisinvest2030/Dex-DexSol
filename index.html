@@ -267,14 +267,16 @@ async function getRaydiumPrice(tk){
   return price; // returnează direct USD per token
 }
 
-// Jupiter Price API v2 — preț agregat (diferit de quote cu slippage)
-// Util pentru comparație rapidă fără rate limit sever
-async function getJupPrice(tk){
-  const d = await safeGet(`https://api.jup.ag/price/v2?ids=${tk.mint}`, 5000);
-  if(!d?.data?.[tk.mint]?.price) return null;
-  const price = parseFloat(d.data[tk.mint].price);
-  if(!price || !isFinite(price) || price <= 0) return null;
-  return price;
+// OpenOcean — meta-agregator Jupiter+Titan, CORS open, zero fees
+// Endpoint v3 Solana: amount fără decimale (ex: 500 USDC = "500")
+async function getOpenOceanQuote(tk){
+  const url = `https://open-api.openocean.finance/v3/solana/quote?inTokenAddress=${USDC_MINT}&outTokenAddress=${tk.mint}&amount=${TRADE}&gasPrice=0.00001&slippage=0.5`;
+  const d = await safeGet(url, 6000);
+  if(!d?.data?.outAmount) return null;
+  const usdcIn = TRADE;
+  const tokOut = parseFloat(d.data.outAmount) / Math.pow(10, tk.dec);
+  if(tokOut <= 0) return null;
+  return usdcIn / tokOut;
 }
 
 async function getOrcaQuote(tk){
@@ -340,79 +342,74 @@ async function runScan(){
   let liveCount = 0;
   const delay = ms => new Promise(r => setTimeout(r, ms));
 
-  // Tokeni unul câte unul cu 1.2s delay — evităm 429 Jupiter (10 req/s free tier)
-  for(let i=0; i<TOKENS.length; i+=1){
-    const batch = TOKENS.slice(i, i+1);
-    await Promise.all(batch.map(async tk=>{
-      const cex = wsPrices[tk.sym];
+  // ── SCAN PARALEL CU TIER-URI ──────────────────────────
+  // Tier A: top 8 tokeni lichizi — fetch în paralel (~3-5s total)
+  // Tier B: restul 20 tokeni — grupuri de 4 cu 1.5s delay (~10s total)
+  const TIER_A_SYMS = ['SOL','WIF','BONK','JUP','RAY','ORCA','PYTH','TRUMP'];
+  const tierA = TOKENS.filter(t => TIER_A_SYMS.includes(t.sym));
+  const tierB = TOKENS.filter(t => !TIER_A_SYMS.includes(t.sym));
 
-      // Fetch surse DEX — Jupiter quote + Raydium spot price
-      // JupPrice v2 blocat CORS de pe GitHub Pages — eliminat
-      const [jup, ray, orca, kam, met] = await Promise.all([
-        getJupQuote(tk),
-        getRaydiumPrice(tk),
-        getOrcaQuote(tk),
-        getKaminoQuote(tk),
-        getMeteoraQuote(tk),
-      ]);
+  async function scanToken(tk){
+    const cex = wsPrices[tk.sym];
 
-      const cexMid = cex?.mid || 0;
+    const [jup, ray, oo, orca, kam, met] = await Promise.all([
+      getJupQuote(tk),
+      getRaydiumPrice(tk),
+      getOpenOceanQuote(tk),
+      getOrcaQuote(tk),
+      getKaminoQuote(tk),
+      getMeteoraQuote(tk),
+    ]);
 
-      // Sanity check de bază — preț rezonabil
-      function sane(p){
-        if(!p || !isFinite(p) || p <= 0) return false;
-        if(!cexMid) return true;
-        // Acceptăm doar prețuri între 50%-200% față de CEX
-        return p > cexMid * 0.50 && p < cexMid * 2.0;
-      }
+    const cexMid = cex?.mid || 0;
+    function sane(p){
+      if(!p || !isFinite(p) || p <= 0) return false;
+      if(!cexMid) return true;
+      return p > cexMid * 0.50 && p < cexMid * 2.0;
+    }
 
-      const dexMap = {};
-      if(sane(jup))  dexMap['JUP']     = jup;
+    const dexMap = {};
+    if(sane(jup)) dexMap['JUP'] = jup;
 
-      // Raydium: validare suplimentară față de Jupiter
-      // Dacă diferă cu >15% față de Jupiter, e preț de pool gol — ignorăm
-      if(sane(ray)){
-        if(jup && Math.abs(ray - jup) / jup > 0.15){
-          // Preț Raydium suspect — ignorat
-        } else {
-          dexMap['RAYDIUM'] = ray;
-        }
-      }
+    // Raydium și OpenOcean: valide doar dacă diferă <15% față de Jupiter
+    if(sane(ray) && (!jup || Math.abs(ray - jup) / jup <= 0.15)) dexMap['RAYDIUM'] = ray;
+    if(sane(oo)  && (!jup || Math.abs(oo  - jup) / jup <= 0.15)) dexMap['OO']      = oo;
 
-      if(sane(orca)) dexMap['ORCA']    = orca;
-      if(sane(kam))  dexMap['KAMINO']  = kam;
-      if(sane(met))  dexMap['METEORA'] = met;
+    if(sane(orca)) dexMap['ORCA']    = orca;
+    if(sane(kam))  dexMap['KAMINO']  = kam;
+    if(sane(met))  dexMap['METEORA'] = met;
 
-      dexPrices[tk.sym] = dexMap;
-      if(Object.keys(dexMap).length > 0) liveCount++;
+    dexPrices[tk.sym] = dexMap;
+    if(Object.keys(dexMap).length > 0) liveCount++;
 
-      const dexList = Object.entries(dexMap); // [[name, price], ...]
-      if(!dexList.length) return;
+    const dexList = Object.entries(dexMap);
+    if(!dexList.length) return;
 
-      const cheapestDex  = dexList.reduce((a,b)=>a[1]<b[1]?a:b);
-      const expensiveDex = dexList.reduce((a,b)=>a[1]>b[1]?a:b);
+    const cheapestDex  = dexList.reduce((a,b)=>a[1]<b[1]?a:b);
+    const expensiveDex = dexList.reduce((a,b)=>a[1]>b[1]?a:b);
 
-      // ── CEX→DEX: cumperi Binance (ask), vinzi pe DEX scump ──
-      if(cex && expensiveDex[1] > cex.ask){
-        const o = calcOpp(tk, cex.ask, expensiveDex[1], 'BINANCE', expensiveDex[0], 'CEX→DEX');
-        // Max 5% spread — peste asta e preț stale/fals
-        if(o.spread > 0 && o.spread < 5.0) opps.push(o);
-      }
+    if(cex && expensiveDex[1] > cex.ask){
+      const o = calcOpp(tk, cex.ask, expensiveDex[1], 'BINANCE', expensiveDex[0], 'CEX→DEX');
+      if(o.spread > 0 && o.spread < 5.0) opps.push(o);
+    }
+    if(cex && cex.bid > cheapestDex[1]){
+      const o = calcOpp(tk, cheapestDex[1], cex.bid, cheapestDex[0], 'BINANCE', 'DEX→CEX');
+      if(o.spread > 0 && o.spread < 5.0) opps.push(o);
+    }
+    if(dexList.length >= 2 && cheapestDex[0] !== expensiveDex[0]){
+      const o = calcOpp(tk, cheapestDex[1], expensiveDex[1], cheapestDex[0], expensiveDex[0], 'DEX→DEX');
+      if(o.spread > 0.1 && o.spread < 5.0) opps.push(o);
+    }
+  }
 
-      // ── DEX→CEX: cumperi DEX ieftin, vinzi Binance (bid) ──
-      if(cex && cex.bid > cheapestDex[1]){
-        const o = calcOpp(tk, cheapestDex[1], cex.bid, cheapestDex[0], 'BINANCE', 'DEX→CEX');
-        if(o.spread > 0 && o.spread < 5.0) opps.push(o);
-      }
+  // Tier A: toți în paralel (~3-5s)
+  await Promise.all(tierA.map(tk => scanToken(tk)));
 
-      // ── DEX→DEX: cumperi ieftin, vinzi scump pe alt DEX ──
-      if(dexList.length >= 2 && cheapestDex[0] !== expensiveDex[0]){
-        const o = calcOpp(tk, cheapestDex[1], expensiveDex[1], cheapestDex[0], expensiveDex[0], 'DEX→DEX');
-        // Filtrăm: spread > 5% = preț fals (pool gol/stale)
-        if(o.spread > 0.1 && o.spread < 5.0) opps.push(o);
-      }
-    }));
-    if(i + 1 < TOKENS.length) await delay(1800); // 1.8s între tokeni — fix 429
+  // Tier B: grupuri de 4 cu 1.5s delay (~10s total)
+  for(let i = 0; i < tierB.length; i += 4){
+    const batch = tierB.slice(i, i + 4);
+    await Promise.all(batch.map(tk => scanToken(tk)));
+    if(i + 4 < tierB.length) await delay(1500);
   }
 
   allOpps = opps.sort((a,b)=>b.netPct-a.netPct);
@@ -430,11 +427,12 @@ async function runScan(){
   // Update API status ORCA/KAMINO/METEORA
   const hasJup  = Object.values(dexPrices).some(d=>d['JUP']);
   const hasRay  = Object.values(dexPrices).some(d=>d['RAYDIUM']);
+  const hasOO   = Object.values(dexPrices).some(d=>d['OO']);
   const hasOrca = Object.values(dexPrices).some(d=>d['ORCA']);
   const hasKam  = Object.values(dexPrices).some(d=>d['KAMINO']);
   const hasMet  = Object.values(dexPrices).some(d=>d['METEORA']);
   setApi('jup',  hasJup  ? `OK ${Object.values(dexPrices).filter(d=>d['JUP']).length}tk`    : 'ERR',  hasJup ?'ok':'err');
-  setApi('ray',  hasRay  ? `OK ${Object.values(dexPrices).filter(d=>d['RAYDIUM']).length}tk`: 'ERR',  hasRay ?'ok':'err');
+  setApi('ray',  hasRay  ? `OK ${Object.values(dexPrices).filter(d=>d['RAYDIUM']).length}tk`: hasOO ? `OO ${Object.values(dexPrices).filter(d=>d['OO']).length}tk` : 'ERR', hasRay||hasOO?'ok':'err');
   setApi('orca', hasOrca ? `OK ${Object.values(dexPrices).filter(d=>d['ORCA']).length}tk`   : 'CORS', hasOrca?'ok':'warn');
   setApi('kam',  hasKam  ? `OK ${Object.values(dexPrices).filter(d=>d['KAMINO']).length}tk` : 'CORS', hasKam ?'ok':'warn');
   setApi('met',  hasMet  ? `OK ${Object.values(dexPrices).filter(d=>d['METEORA']).length}tk`: 'CORS', hasMet ?'ok':'warn');
@@ -553,7 +551,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 // ═══════════════════════════════════════════════════════
 // AUTO SCAN
 // ═══════════════════════════════════════════════════════
-let autoSec = 60; // 60s — 28 tokeni × 1.8s = ~50s per scan
+let autoSec = 20; // 20s — Tier A paralel ~5s + Tier B ~10s = ~15s total
 function startAuto(){
   let cnt = autoSec;
   autoTimer = setInterval(()=>{
