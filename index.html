@@ -357,15 +357,28 @@ async function runScan(){
       ]);
 
       const cexMid = cex?.mid || 0;
+
+      // Sanity check de bază — preț rezonabil
       function sane(p){
         if(!p || !isFinite(p) || p <= 0) return false;
         if(!cexMid) return true;
-        return p > cexMid * 0.2 && p < cexMid * 5.0;
+        // Acceptăm doar prețuri între 50%-200% față de CEX
+        return p > cexMid * 0.50 && p < cexMid * 2.0;
       }
 
       const dexMap = {};
       if(sane(jup))  dexMap['JUP']     = jup;
-      if(sane(ray))  dexMap['RAYDIUM'] = ray;
+
+      // Raydium: validare suplimentară față de Jupiter
+      // Dacă diferă cu >15% față de Jupiter, e preț de pool gol — ignorăm
+      if(sane(ray)){
+        if(jup && Math.abs(ray - jup) / jup > 0.15){
+          // Preț Raydium suspect — ignorat
+        } else {
+          dexMap['RAYDIUM'] = ray;
+        }
+      }
+
       if(sane(orca)) dexMap['ORCA']    = orca;
       if(sane(kam))  dexMap['KAMINO']  = kam;
       if(sane(met))  dexMap['METEORA'] = met;
@@ -382,19 +395,21 @@ async function runScan(){
       // ── CEX→DEX: cumperi Binance (ask), vinzi pe DEX scump ──
       if(cex && expensiveDex[1] > cex.ask){
         const o = calcOpp(tk, cex.ask, expensiveDex[1], 'BINANCE', expensiveDex[0], 'CEX→DEX');
-        if(o.spread > 0) opps.push(o);
+        // Max 5% spread — peste asta e preț stale/fals
+        if(o.spread > 0 && o.spread < 5.0) opps.push(o);
       }
 
       // ── DEX→CEX: cumperi DEX ieftin, vinzi Binance (bid) ──
       if(cex && cex.bid > cheapestDex[1]){
         const o = calcOpp(tk, cheapestDex[1], cex.bid, cheapestDex[0], 'BINANCE', 'DEX→CEX');
-        if(o.spread > 0) opps.push(o);
+        if(o.spread > 0 && o.spread < 5.0) opps.push(o);
       }
 
       // ── DEX→DEX: cumperi ieftin, vinzi scump pe alt DEX ──
       if(dexList.length >= 2 && cheapestDex[0] !== expensiveDex[0]){
         const o = calcOpp(tk, cheapestDex[1], expensiveDex[1], cheapestDex[0], expensiveDex[0], 'DEX→DEX');
-        if(o.spread > 0.1) opps.push(o);
+        // Filtrăm: spread > 5% = preț fals (pool gol/stale)
+        if(o.spread > 0.1 && o.spread < 5.0) opps.push(o);
       }
     }));
     if(i + 1 < TOKENS.length) await delay(1800); // 1.8s între tokeni — fix 429
