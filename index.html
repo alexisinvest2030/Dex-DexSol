@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DEX·ARB SCANNER v1.1 — Solana</title>
+<title>DEX·ARB SCANNER v1.2 — Solana 28 Tokeni</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
 :root {
@@ -87,7 +87,7 @@ input[type=number]:focus{outline:none;border-color:var(--accent)}
 
 <!-- HEADER -->
 <div class="hdr">
-  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.1 — Solana</span></div>
+  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.2 — Solana 28 Tokeni</span></div>
   <div class="hdr-apis">
     <div class="api-pill warn" id="api-bnb"><div class="api-dot"></div><span id="api-bnb-txt">BNB WS</span></div>
     <div class="api-pill warn" id="api-jup"><div class="api-dot"></div><span id="api-jup-txt">JUPITER</span></div>
@@ -150,7 +150,7 @@ input[type=number]:focus{outline:none;border-color:var(--accent)}
 
 <!-- FOOTER -->
 <div class="ftr">
-  <span>DEX·ARB SCANNER v1.1 — DRY RUN — IP Rezidential</span>
+  <span>DEX·ARB SCANNER v1.2 — 28 Tokeni SOL — DRY RUN</span>
   <span id="ftr-time">—</span>
 </div>
 
@@ -167,18 +167,40 @@ let   currentFilter = 'ALL';
 // Cloudflare Worker proxy — rezolvă CORS pentru Orca/Kamino/Meteora
 const PROXY = 'https://ancient-brook-6a39.alexis-invest2030.workers.dev/proxy?url=';
 
-// Tokeni SOL top 10
+// Toți tokenii SOL listați pe Binance cu USDC — 28 tokeni
 const TOKENS = [
-  {sym:'SOL',    mint:'So11111111111111111111111111111111111111112',  pair:'SOLUSDC', dec:9,  wFee:0.10, gas:0.001, tier:'tier1'},
-  {sym:'RAY',    mint:'4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',pair:'RAYUSDC', dec:6,  wFee:0.30, gas:0.001, tier:'tier3'},
-  {sym:'JUP',    mint:'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', pair:'JUPUSDC', dec:6,  wFee:0.30, gas:0.001, tier:'tier3'},
-  {sym:'WIF',    mint:'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm',pair:'WIFUSDC', dec:6,  wFee:0.30, gas:0.001, tier:'tier2'},
-  {sym:'BONK',   mint:'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',pair:'BONKUSDC',dec:5,  wFee:0.30, gas:0.001, tier:'tier3'},
-  {sym:'PYTH',   mint:'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3', pair:'PYTHUSDC',dec:6,  wFee:0.30, gas:0.001, tier:'tier3'},
-  {sym:'JITO',   mint:'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', pair:'JITOUSDC',dec:9,  wFee:0.30, gas:0.001, tier:'tier3'},
-  {sym:'ORCA',   mint:'orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE',  pair:'ORCAUSDC',dec:6,  wFee:0.30, gas:0.001, tier:'tier3'},
-  {sym:'PENGU',  mint:'2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv', pair:'PENGUUSDC',dec:6, wFee:0.30, gas:0.001, tier:'tier4'},
-  {sym:'TRUMP',  mint:'6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN', pair:'TRUMPUSDC',dec:6, wFee:0.30, gas:0.001, tier:'tier3'},
+  // ── TIER 1 ────────────────────────────────────────────
+  {sym:'SOL',      mint:'So11111111111111111111111111111111111111112',   pair:'SOLUSDC',      dec:9, wFee:0.10,gas:0.001,tier:'tier1'},
+  // ── TIER 2 ────────────────────────────────────────────
+  {sym:'WIF',      mint:'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm',pair:'WIFUSDC',      dec:6, wFee:0.30,gas:0.001,tier:'tier2'},
+  {sym:'BONK',     mint:'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', pair:'BONKUSDC',     dec:5, wFee:0.30,gas:0.001,tier:'tier2'},
+  // ── TIER 3 ────────────────────────────────────────────
+  {sym:'RAY',      mint:'4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R', pair:'RAYUSDC',      dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'JUP',      mint:'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',  pair:'JUPUSDC',      dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'PYTH',     mint:'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3', pair:'PYTHUSDC',     dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'JITO',     mint:'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', pair:'JITOUSDC',     dec:9, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'ORCA',     mint:'orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE',  pair:'ORCAUSDC',     dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'TRUMP',    mint:'6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN', pair:'TRUMPUSDC',    dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'RENDER',   mint:'rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof',  pair:'RENDERUSDC',   dec:8, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'HNT',      mint:'hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux', pair:'HNTUSDC',      dec:8, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'DRIFT',    mint:'DriFtupJYLTosbwoN8koMbEYSx54aFAVLddWsbksjwg7', pair:'DRIFTUSDC',    dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'BOME',     mint:'ukHH6c7mMyiWCf1b9pnWe25TSpkDDt3H5pQZgZ74J82', pair:'BOMEUSDC',     dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'MEW',      mint:'MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5', pair:'MEWUSDC',      dec:5, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'POPCAT',   mint:'7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr',pair:'POPCATUSDC',   dec:9, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'PENGU',    mint:'2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv', pair:'PENGUUSDC',    dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'PUMP',     mint:'9BB6NFECJBcTNnLkoPG7PeGjCvBBNnBSrFuQSgWpump',  pair:'PUMPUSDC',     dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
+  {sym:'MOBILE',   mint:'mb1eu7TzEc71KxDpsmsKoucSSuuoGLv1drys1oP2jh6',  pair:'MOBILEUSDC',   dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
+  // ── TIER 4 — meme coins / volatilitate mare ──────────
+  {sym:'FARTCOIN', mint:'9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump', pair:'FARTCOINUSDC', dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
+  {sym:'PNUT',     mint:'2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump', pair:'PNUTUSDC',     dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
+  {sym:'GOAT',     mint:'CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump', pair:'GOATUSDC',     dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
+  {sym:'MOODENG',  mint:'ED5nyyWEzpPPiWimP8vYm7sD7TD3LAt3Q3gRTWHzc8FC', pair:'MOODENGUSDC',  dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
+  {sym:'ACT',      mint:'GJAFwWjJ3vnTsrQVabjBVK2TYB1YtRCQXRDfDgUnpump', pair:'ACTUSDC',      dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
+  {sym:'ZEREBRO',  mint:'8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn', pair:'ZEREBROUSDC',  dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
+  {sym:'GRIFFAIN', mint:'griffinDpUuNQ6FMfFkpSqpFJXFrNuQkqfEmXbpump',   pair:'GRIFFAINUSDC', dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
+  {sym:'AI16Z',    mint:'HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC', pair:'AI16ZUSDC',    dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
+  {sym:'SWARMS',   mint:'74SBV4zDXxTRgv1pUmGZHMwhpXPZRhg9xePmNPpump',   pair:'SWARMSUSDC',   dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
+  {sym:'KMNO',     mint:'KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS', pair:'KMNOUSDC',     dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
 ];
 
 // Slippage dinamic
@@ -486,7 +508,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 // ═══════════════════════════════════════════════════════
 // AUTO SCAN
 // ═══════════════════════════════════════════════════════
-let autoSec = 30; // 30s între scanuri — Jupiter rate limit 10 req/s free tier
+let autoSec = 45; // 45s între scanuri — 28 tokeni × 1.2s = ~34s per scan
 function startAuto(){
   let cnt = autoSec;
   autoTimer = setInterval(()=>{
