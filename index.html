@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DEX·ARB SCANNER v1.2 — Solana 28 Tokeni</title>
+<title>DEX·ARB SCANNER v1.3 — Solana 28 Tokeni</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
 :root {
@@ -87,10 +87,11 @@ input[type=number]:focus{outline:none;border-color:var(--accent)}
 
 <!-- HEADER -->
 <div class="hdr">
-  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.2 — Solana 28 Tokeni</span></div>
+  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.3 — JUP+RAY+ORCA+KAM+MET</span></div>
   <div class="hdr-apis">
     <div class="api-pill warn" id="api-bnb"><div class="api-dot"></div><span id="api-bnb-txt">BNB WS</span></div>
     <div class="api-pill warn" id="api-jup"><div class="api-dot"></div><span id="api-jup-txt">JUPITER</span></div>
+    <div class="api-pill warn" id="api-ray"><div class="api-dot"></div><span id="api-ray-txt">RAYDIUM</span></div>
     <div class="api-pill warn" id="api-orca"><div class="api-dot"></div><span id="api-orca-txt">ORCA</span></div>
     <div class="api-pill warn" id="api-kam"><div class="api-dot"></div><span id="api-kam-txt">KAMINO</span></div>
     <div class="api-pill warn" id="api-met"><div class="api-dot"></div><span id="api-met-txt">METEORA</span></div>  </div>
@@ -247,15 +248,33 @@ async function safeGet(url, timeout=6000){
 }
 
 async function getJupQuote(tk){
-  const amt = Math.round(TRADE * 1e6); // USDC input in microUSDC
+  const amt = Math.round(TRADE * 1e6);
   const d = await safeGet(`https://lite-api.jup.ag/swap/v1/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&amount=${amt}&slippageBps=50`);
   if(!d?.outAmount||!d?.inAmount) return null;
-  // inAmount  = USDC smallest units (6 dec)
-  // outAmount = token smallest units (tk.dec decimals)
-  const usdcIn   = parseInt(d.inAmount)  / 1e6;          // USDC
-  const tokOut   = parseInt(d.outAmount) / Math.pow(10, tk.dec); // tokens
+  const usdcIn = parseInt(d.inAmount)  / 1e6;
+  const tokOut = parseInt(d.outAmount) / Math.pow(10, tk.dec);
   if(tokOut <= 0) return null;
-  return usdcIn / tokOut; // USDC per token = preț corect
+  return usdcIn / tokOut;
+}
+
+// Raydium price API — preț spot direct din pool-uri Raydium
+// Funcționează din browser, CORS open
+async function getRaydiumPrice(tk){
+  const d = await safeGet(`https://api-v3.raydium.io/mint/price?mints=${tk.mint}`, 5000);
+  if(!d?.data) return null;
+  const price = parseFloat(d.data[tk.mint]);
+  if(!price || !isFinite(price) || price <= 0) return null;
+  return price; // returnează direct USD per token
+}
+
+// Jupiter Price API v2 — preț agregat (diferit de quote cu slippage)
+// Util pentru comparație rapidă fără rate limit sever
+async function getJupPrice(tk){
+  const d = await safeGet(`https://api.jup.ag/price/v2?ids=${tk.mint}`, 5000);
+  if(!d?.data?.[tk.mint]?.price) return null;
+  const price = parseFloat(d.data[tk.mint].price);
+  if(!price || !isFinite(price) || price <= 0) return null;
+  return price;
 }
 
 async function getOrcaQuote(tk){
@@ -327,23 +346,31 @@ async function runScan(){
     await Promise.all(batch.map(async tk=>{
       const cex = wsPrices[tk.sym];
 
-      // Doar Jupiter funcționează — Orca/Kamino/Meteora blochează toate datacenter-urile
-      const jup  = await getJupQuote(tk);
-      const orca = null, kam = null, met = null;
+      // Fetch toate sursele DEX în paralel
+      const [jup, ray, jupPrice, orca, kam, met] = await Promise.all([
+        getJupQuote(tk),       // Jupiter quote cu slippage real
+        getRaydiumPrice(tk),   // Raydium spot price direct din pool
+        getJupPrice(tk),       // Jupiter price v2 agregat
+        getOrcaQuote(tk),      // Orca (prin proxy — poate merge)
+        getKaminoQuote(tk),    // Kamino (prin proxy — poate merge)
+        getMeteoraQuote(tk),   // Meteora (prin proxy — poate merge)
+      ]);
 
-      // Sanity check: ignorăm prețuri care diferă cu >80% față de CEX
+      // Sanity check
       const cexMid = cex?.mid || 0;
       function sane(p){
         if(!p || !isFinite(p) || p <= 0) return false;
-        if(!cexMid) return true; // fără CEX, acceptăm orice valoare pozitivă
+        if(!cexMid) return true;
         return p > cexMid * 0.2 && p < cexMid * 5.0;
       }
 
       const dexMap = {};
-      if(sane(jup))  dexMap['JUP']     = jup;
-      if(sane(orca)) dexMap['ORCA']    = orca;
-      if(sane(kam))  dexMap['KAMINO']  = kam;
-      if(sane(met))  dexMap['METEORA'] = met;
+      if(sane(jup))      dexMap['JUP']     = jup;
+      if(sane(ray))      dexMap['RAYDIUM'] = ray;
+      if(sane(jupPrice)) dexMap['JUP-P']   = jupPrice;
+      if(sane(orca))     dexMap['ORCA']    = orca;
+      if(sane(kam))      dexMap['KAMINO']  = kam;
+      if(sane(met))      dexMap['METEORA'] = met;
 
       dexPrices[tk.sym] = dexMap;
       if(Object.keys(dexMap).length > 0) liveCount++;
@@ -388,11 +415,16 @@ async function runScan(){
   document.getElementById('scan-btn').textContent = '⟳ SCAN NOW';
 
   // Update API status ORCA/KAMINO/METEORA
-  const hasJup = Object.values(dexPrices).some(d=>d['JUP']);
-  setApi('jup',  hasJup ? `OK ${Object.values(dexPrices).filter(d=>d['JUP']).length}tk` : 'ERR', hasJup?'ok':'err');
-  setApi('orca', 'N/A', 'warn');
-  setApi('kam',  'N/A', 'warn');
-  setApi('met',  'N/A', 'warn');
+  const hasJup  = Object.values(dexPrices).some(d=>d['JUP']);
+  const hasRay  = Object.values(dexPrices).some(d=>d['RAYDIUM']);
+  const hasOrca = Object.values(dexPrices).some(d=>d['ORCA']);
+  const hasKam  = Object.values(dexPrices).some(d=>d['KAMINO']);
+  const hasMet  = Object.values(dexPrices).some(d=>d['METEORA']);
+  setApi('jup',  hasJup  ? `OK ${Object.values(dexPrices).filter(d=>d['JUP']).length}tk`    : 'ERR',  hasJup ?'ok':'err');
+  setApi('ray',  hasRay  ? `OK ${Object.values(dexPrices).filter(d=>d['RAYDIUM']).length}tk`: 'ERR',  hasRay ?'ok':'err');
+  setApi('orca', hasOrca ? `OK ${Object.values(dexPrices).filter(d=>d['ORCA']).length}tk`   : 'CORS', hasOrca?'ok':'warn');
+  setApi('kam',  hasKam  ? `OK ${Object.values(dexPrices).filter(d=>d['KAMINO']).length}tk` : 'CORS', hasKam ?'ok':'warn');
+  setApi('met',  hasMet  ? `OK ${Object.values(dexPrices).filter(d=>d['METEORA']).length}tk`: 'CORS', hasMet ?'ok':'warn');
 }
 
 // ═══════════════════════════════════════════════════════
