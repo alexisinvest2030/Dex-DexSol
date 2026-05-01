@@ -87,12 +87,12 @@ input[type=number]:focus{outline:none;border-color:var(--accent)}
 
 <!-- HEADER -->
 <div class="hdr">
-  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.4 — JUP+RAY+OO</span></div>
+  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.5 — RAY batch 5s</span></div>
   <div class="hdr-apis">
     <div class="api-pill warn" id="api-bnb"><div class="api-dot"></div><span id="api-bnb-txt">BNB WS</span></div>
-    <div class="api-pill warn" id="api-jup"><div class="api-dot"></div><span id="api-jup-txt">JUPITER</span></div>
     <div class="api-pill warn" id="api-ray"><div class="api-dot"></div><span id="api-ray-txt">RAYDIUM</span></div>
-    <div class="api-pill warn" id="api-oo"><div class="api-dot"></div><span id="api-oo-txt">OPENOCEAN</span></div>  </div>
+    <div class="api-pill warn" id="api-jup"><div class="api-dot"></div><span id="api-jup-txt">JUP</span></div>
+    <div class="api-pill warn" id="api-oo"><div class="api-dot"></div><span id="api-oo-txt">OO</span></div>  </div>
 </div>
 
 <!-- STATS -->
@@ -354,35 +354,52 @@ async function runScan(){
   // ── STEP 1: Raydium BATCH — toți 28 tokeni într-un singur request (~1s) ──
   const rayPrices = await getRaydiumBatchPrices(TOKENS);
 
-  // ── STEP 2b: Jupiter fallback — secvențial cu delay, doar tokeni lipsă ──
-  const missingFromRay = TOKENS.filter(t => !rayPrices[t.sym]);
+  // Jupiter și OO rulează async în background — nu blochează scanul principal
+  // Raydium e sursa primară, JUP/OO adaugă context dacă răspund
   const jupPrices = {};
-  for(const tk of missingFromRay.slice(0, 4)){ // max 4 tokeni
-    const p = await getJupQuote(tk);
-    if(p) jupPrices[tk.sym] = p;
-    await new Promise(r => setTimeout(r, 500));
+  const ooPrices  = {};
+
+  // Lansăm în background fără await — nu așteptăm
+  const missingFromRay = TOKENS.filter(t => !rayPrices[t.sym]);
+  if(missingFromRay.length > 0){
+    (async()=>{
+      for(const tk of missingFromRay.slice(0,3)){
+        const p = await getJupQuote(tk);
+        if(p) jupPrices[tk.sym] = p;
+        await new Promise(r=>setTimeout(r,600));
+      }
+    })();
   }
+  // OO pentru SOL în background
+  (async()=>{
+    const solTk = TOKENS.find(t=>t.sym==='SOL');
+    if(solTk){
+      const OO_API_KEY = 'KyAFzVz8QIiocdnG2Wi8gREW28OYZ7bw';
+      const chain = 'solana-mainnet';
+      const amt = Math.round(TRADE * 1e6).toString();
+      const url = `https://open-api.openocean.finance/v4/${chain}/quote?inTokenAddress=${USDC_MINT}&outTokenAddress=${solTk.mint}&amountDecimals=${amt}&gasPriceDecimals=1&slippage=1&apikey=${OO_API_KEY}`;
+      const d = await safeGet(url, 5000);
+      if(d?.code===200 && d?.data?.outAmount){
+        const tokOut = parseFloat(d.data.outAmount)/Math.pow(10,solTk.dec);
+        if(tokOut>0) ooPrices['SOL'] = TRADE/tokOut;
+      }
+    }
+  })();
 
-  // ── STEP 3: OpenOcean — doar SOL (1 request, sub 1 RPS free tier) ──
-  const OO_SYMS = ['SOL'];
-  const ooTokens = TOKENS.filter(t => OO_SYMS.includes(t.sym));
-  const ooPrices = await getOpenOceanBatchPrices(ooTokens);
-
-  // ── STEP 4: Procesare comparații ──
+  // ── Procesare imediată cu ce avem din Raydium ──
   TOKENS.forEach(tk => {
     const cex    = wsPrices[tk.sym];
-    const ray    = rayPrices[tk.sym]  || null;
-    const jup    = jupPrices[tk.sym]  || null;
-    const oo     = ooPrices[tk.sym]   || null;
+    const ray    = rayPrices[tk.sym] || null;
+    const jup    = jupPrices[tk.sym] || null;
+    const oo     = ooPrices[tk.sym]  || null;
     const cexMid = cex?.mid || 0;
 
-    // Prețul de referință: Raydium dacă există, altfel Jupiter
     const ref = ray || jup;
     if(!ref) return;
 
     function sane(p){
       if(!p || !isFinite(p) || p <= 0) return false;
-      if(!cexMid) return p > ref*0.5 && p < ref*2.0;
+      if(!cexMid) return true;
       return p > cexMid * 0.50 && p < cexMid * 2.0;
     }
 
@@ -426,15 +443,12 @@ async function runScan(){
   document.getElementById('scan-btn').textContent = '⟳ SCAN NOW';
 
   // Update API status ORCA/KAMINO/METEORA
-  const hasJup = Object.values(dexPrices).some(d=>d['JUP']);
   const hasRay = Object.values(dexPrices).some(d=>d['RAYDIUM']);
+  const hasJup = Object.values(dexPrices).some(d=>d['JUP']);
   const hasOO  = Object.values(dexPrices).some(d=>d['OO']);
-  const cntJup = Object.values(dexPrices).filter(d=>d['JUP']).length;
-  const cntRay = Object.values(dexPrices).filter(d=>d['RAYDIUM']).length;
-  const cntOO  = Object.values(dexPrices).filter(d=>d['OO']).length;
-  setApi('jup', hasJup ? `${cntJup}tk` : 'ERR/429', hasJup ?'ok':'err');
-  setApi('ray', hasRay ? `${cntRay}tk` : 'ERR',     hasRay ?'ok':'err');
-  setApi('oo',  hasOO  ? `${cntOO}tk`  : 'ERR/429', hasOO  ?'ok':'err');
+  setApi('ray', hasRay ? `${Object.values(dexPrices).filter(d=>d['RAYDIUM']).length}tk` : 'ERR', hasRay?'ok':'err');
+  setApi('jup', hasJup ? `${Object.values(dexPrices).filter(d=>d['JUP']).length}tk`     : 'BG',  hasJup?'ok':'warn');
+  setApi('oo',  hasOO  ? `SOL✓` : 'BG', hasOO?'ok':'warn');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -550,7 +564,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 // ═══════════════════════════════════════════════════════
 // AUTO SCAN
 // ═══════════════════════════════════════════════════════
-let autoSec = 30; // 30s — Raydium batch instant + OO 1 token + JUP fallback secvential
+let autoSec = 5; // 5s — Raydium batch e 1 request ~500ms, poate ține
 function startAuto(){
   let cnt = autoSec;
   autoTimer = setInterval(()=>{
