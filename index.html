@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DEX·ARB SCANNER v1.3 — Solana 28 Tokeni</title>
+<title>DEX·ARB SCANNER v1.4 — Solana 28 Tokeni</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
 :root {
@@ -87,14 +87,12 @@ input[type=number]:focus{outline:none;border-color:var(--accent)}
 
 <!-- HEADER -->
 <div class="hdr">
-  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.3 — JUP+RAY+ORCA+KAM+MET</span></div>
+  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.4 — JUP+RAY+OO</span></div>
   <div class="hdr-apis">
     <div class="api-pill warn" id="api-bnb"><div class="api-dot"></div><span id="api-bnb-txt">BNB WS</span></div>
     <div class="api-pill warn" id="api-jup"><div class="api-dot"></div><span id="api-jup-txt">JUPITER</span></div>
     <div class="api-pill warn" id="api-ray"><div class="api-dot"></div><span id="api-ray-txt">RAYDIUM</span></div>
-    <div class="api-pill warn" id="api-orca"><div class="api-dot"></div><span id="api-orca-txt">ORCA</span></div>
-    <div class="api-pill warn" id="api-kam"><div class="api-dot"></div><span id="api-kam-txt">KAMINO</span></div>
-    <div class="api-pill warn" id="api-met"><div class="api-dot"></div><span id="api-met-txt">METEORA</span></div>  </div>
+    <div class="api-pill warn" id="api-oo"><div class="api-dot"></div><span id="api-oo-txt">OPENOCEAN</span></div>  </div>
 </div>
 
 <!-- STATS -->
@@ -349,17 +347,18 @@ async function runScan(){
   const tierA = TOKENS.filter(t => TIER_A_SYMS.includes(t.sym));
   const tierB = TOKENS.filter(t => !TIER_A_SYMS.includes(t.sym));
 
-  async function scanToken(tk){
+  async function scanToken(tk, useOO = false){
     const cex = wsPrices[tk.sym];
 
-    const [jup, ray, oo, orca, kam, met] = await Promise.all([
+    // Doar surse care funcționează din browser:
+    // JUP (always), RAYDIUM (always), OpenOcean (doar Tier A — rate limit 2 RPS)
+    // Orca/Kamino/Meteora eliminate — blocate Cloudflare 403 permanent
+    const fetches = [
       getJupQuote(tk),
       getRaydiumPrice(tk),
-      getOpenOceanQuote(tk),
-      getOrcaQuote(tk),
-      getKaminoQuote(tk),
-      getMeteoraQuote(tk),
-    ]);
+      useOO ? getOpenOceanQuote(tk) : Promise.resolve(null),
+    ];
+    const [jup, ray, oo] = await Promise.all(fetches);
 
     const cexMid = cex?.mid || 0;
     function sane(p){
@@ -374,10 +373,6 @@ async function runScan(){
     // Raydium și OpenOcean: valide doar dacă diferă <15% față de Jupiter
     if(sane(ray) && (!jup || Math.abs(ray - jup) / jup <= 0.15)) dexMap['RAYDIUM'] = ray;
     if(sane(oo)  && (!jup || Math.abs(oo  - jup) / jup <= 0.15)) dexMap['OO']      = oo;
-
-    if(sane(orca)) dexMap['ORCA']    = orca;
-    if(sane(kam))  dexMap['KAMINO']  = kam;
-    if(sane(met))  dexMap['METEORA'] = met;
 
     dexPrices[tk.sym] = dexMap;
     if(Object.keys(dexMap).length > 0) liveCount++;
@@ -402,13 +397,13 @@ async function runScan(){
     }
   }
 
-  // Tier A: toți în paralel (~3-5s)
-  await Promise.all(tierA.map(tk => scanToken(tk)));
+  // Tier A: toți în paralel cu OpenOcean (~5s)
+  await Promise.all(tierA.map(tk => scanToken(tk, true)));
 
-  // Tier B: grupuri de 4 cu 1.5s delay (~10s total)
+  // Tier B: grupuri de 4, fără OpenOcean (~10s)
   for(let i = 0; i < tierB.length; i += 4){
     const batch = tierB.slice(i, i + 4);
-    await Promise.all(batch.map(tk => scanToken(tk)));
+    await Promise.all(batch.map(tk => scanToken(tk, false)));
     if(i + 4 < tierB.length) await delay(1500);
   }
 
@@ -425,17 +420,15 @@ async function runScan(){
   document.getElementById('scan-btn').textContent = '⟳ SCAN NOW';
 
   // Update API status ORCA/KAMINO/METEORA
-  const hasJup  = Object.values(dexPrices).some(d=>d['JUP']);
-  const hasRay  = Object.values(dexPrices).some(d=>d['RAYDIUM']);
-  const hasOO   = Object.values(dexPrices).some(d=>d['OO']);
-  const hasOrca = Object.values(dexPrices).some(d=>d['ORCA']);
-  const hasKam  = Object.values(dexPrices).some(d=>d['KAMINO']);
-  const hasMet  = Object.values(dexPrices).some(d=>d['METEORA']);
-  setApi('jup',  hasJup  ? `OK ${Object.values(dexPrices).filter(d=>d['JUP']).length}tk`    : 'ERR',  hasJup ?'ok':'err');
-  setApi('ray',  hasRay  ? `OK ${Object.values(dexPrices).filter(d=>d['RAYDIUM']).length}tk`: hasOO ? `OO ${Object.values(dexPrices).filter(d=>d['OO']).length}tk` : 'ERR', hasRay||hasOO?'ok':'err');
-  setApi('orca', hasOrca ? `OK ${Object.values(dexPrices).filter(d=>d['ORCA']).length}tk`   : 'CORS', hasOrca?'ok':'warn');
-  setApi('kam',  hasKam  ? `OK ${Object.values(dexPrices).filter(d=>d['KAMINO']).length}tk` : 'CORS', hasKam ?'ok':'warn');
-  setApi('met',  hasMet  ? `OK ${Object.values(dexPrices).filter(d=>d['METEORA']).length}tk`: 'CORS', hasMet ?'ok':'warn');
+  const hasJup = Object.values(dexPrices).some(d=>d['JUP']);
+  const hasRay = Object.values(dexPrices).some(d=>d['RAYDIUM']);
+  const hasOO  = Object.values(dexPrices).some(d=>d['OO']);
+  const cntJup = Object.values(dexPrices).filter(d=>d['JUP']).length;
+  const cntRay = Object.values(dexPrices).filter(d=>d['RAYDIUM']).length;
+  const cntOO  = Object.values(dexPrices).filter(d=>d['OO']).length;
+  setApi('jup', hasJup ? `${cntJup}tk` : 'ERR/429', hasJup ?'ok':'err');
+  setApi('ray', hasRay ? `${cntRay}tk` : 'ERR',     hasRay ?'ok':'err');
+  setApi('oo',  hasOO  ? `${cntOO}tk`  : 'ERR/429', hasOO  ?'ok':'err');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -551,7 +544,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 // ═══════════════════════════════════════════════════════
 // AUTO SCAN
 // ═══════════════════════════════════════════════════════
-let autoSec = 20; // 20s — Tier A paralel ~5s + Tier B ~10s = ~15s total
+let autoSec = 30; // 30s minim — Jupiter free tier 10 req/s, OpenOcean 2 RPS
 function startAuto(){
   let cnt = autoSec;
   autoTimer = setInterval(()=>{
