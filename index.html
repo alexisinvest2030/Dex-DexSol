@@ -188,13 +188,13 @@ const TOKENS = [
   {sym:'MEW',      mint:'MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5', pair:'MEWUSDC',      dec:5, wFee:0.30,gas:0.001,tier:'tier3'},
   {sym:'POPCAT',   mint:'7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr',pair:'POPCATUSDC',   dec:9, wFee:0.30,gas:0.001,tier:'tier3'},
   {sym:'PENGU',    mint:'2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv', pair:'PENGUUSDC',    dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
-  {sym:'PUMP',     mint:'9BB6NFECJBcTNnLkoPG7PeGjCvBBNnBSrFuQSgWpump',  pair:'PUMPUSDC',     dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
+  // PUMP și MOODENG eliminate — mint-uri invalide pe Jupiter (400)
   {sym:'MOBILE',   mint:'mb1eu7TzEc71KxDpsmsKoucSSuuoGLv1drys1oP2jh6',  pair:'MOBILEUSDC',   dec:6, wFee:0.30,gas:0.001,tier:'tier3'},
   // ── TIER 4 — meme coins / volatilitate mare ──────────
   {sym:'FARTCOIN', mint:'9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump', pair:'FARTCOINUSDC', dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
   {sym:'PNUT',     mint:'2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump', pair:'PNUTUSDC',     dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
   {sym:'GOAT',     mint:'CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump', pair:'GOATUSDC',     dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
-  {sym:'MOODENG',  mint:'ED5nyyWEzpPPiWimP8vYm7sD7TD3LAt3Q3gRTWHzc8FC', pair:'MOODENGUSDC',  dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
+  // MOODENG eliminat — mint invalid
   {sym:'ACT',      mint:'GJAFwWjJ3vnTsrQVabjBVK2TYB1YtRCQXRDfDgUnpump', pair:'ACTUSDC',      dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
   {sym:'ZEREBRO',  mint:'8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn', pair:'ZEREBROUSDC',  dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
   // GRIFFAIN și SWARMS eliminate — mint-uri invalide (Jupiter 400)
@@ -288,27 +288,35 @@ async function getOpenOceanBatchPrices(tokens){
 }
 
 // LI.FI — meta-agregator Jupiter+FLY+Orca+Meteora pe Solana
-// 200 RPM, CORS open, token SOL nativ = 11111111111111111111111111111111
+// 200 RPM, API key trimis ca header HTTP
 const LIFI_KEY = '164136c1-29df-4137-8ccd-471ab09abf42.d1d279f5-cf43-445b-a049-32eaa0c8e91f';
 
 async function getLiFiBatchPrices(tokens){
   const result = {};
-  // LI.FI: 200 RPM = 3.3/s — putem face 5 în paralel fără probleme
-  const BATCH = 5;
+  const BATCH = 3; // 3 în paralel — 200 RPM = sigur
   for(let i = 0; i < tokens.length; i += BATCH){
     const batch = tokens.slice(i, i + BATCH);
     await Promise.all(batch.map(async tk => {
-      // SOL nativ folosește adresa specială LI.FI
-      const toToken = tk.sym === 'SOL'
-        ? '11111111111111111111111111111111'
-        : tk.mint;
-      const url = `https://li.quest/v1/quote?fromChain=SOL&toChain=SOL&fromToken=${USDC_MINT}&toToken=${toToken}&fromAmount=${Math.round(TRADE * 1e6)}&integrator=dex-arb-scanner`;
-      const d = await safeGet(url, 7000);
-      if(!d?.estimate?.toAmount) return;
-      const tokOut = parseFloat(d.estimate.toAmount) / Math.pow(10, tk.dec);
-      if(tokOut > 0) result[tk.sym] = TRADE / tokOut;
+      // SOL nativ = So11111111111111111111111111111111111111112 (wSOL)
+      // LI.FI acceptă wSOL pentru swap-uri same-chain
+      const toToken = tk.mint;
+      const url = `https://li.quest/v1/quote?fromChain=SOL&toChain=SOL&fromToken=${USDC_MINT}&toToken=${toToken}&fromAmount=${Math.round(TRADE * 1e6)}`;
+      try {
+        const r = await fetch(url, {
+          signal: AbortSignal.timeout(7000),
+          headers: {
+            'x-lifi-api-key': LIFI_KEY,
+            'Accept': 'application/json',
+          }
+        });
+        if(!r.ok) return;
+        const d = await r.json();
+        if(!d?.estimate?.toAmount) return;
+        const tokOut = parseFloat(d.estimate.toAmount) / Math.pow(10, tk.dec);
+        if(tokOut > 0) result[tk.sym] = TRADE / tokOut;
+      } catch(_){}
     }));
-    if(i + BATCH < tokens.length) await new Promise(r => setTimeout(r, 400));
+    if(i + BATCH < tokens.length) await new Promise(r => setTimeout(r, 300));
   }
   return result;
 }
