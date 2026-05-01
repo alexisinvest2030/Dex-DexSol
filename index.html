@@ -87,12 +87,11 @@ input[type=number]:focus{outline:none;border-color:var(--accent)}
 
 <!-- HEADER -->
 <div class="hdr">
-  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.7 — RAY+OO+LIFI+JUP</span></div>
+  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.7 — RAY+OO+JUP</span></div>
   <div class="hdr-apis">
     <div class="api-pill warn" id="api-bnb"><div class="api-dot"></div><span id="api-bnb-txt">BNB WS</span></div>
     <div class="api-pill warn" id="api-ray"><div class="api-dot"></div><span id="api-ray-txt">RAYDIUM</span></div>
     <div class="api-pill warn" id="api-oo"><div class="api-dot"></div><span id="api-oo-txt">OO</span></div>
-    <div class="api-pill warn" id="api-lifi"><div class="api-dot"></div><span id="api-lifi-txt">LI.FI</span></div>
     <div class="api-pill warn" id="api-jup"><div class="api-dot"></div><span id="api-jup-txt">JUP</span></div>  </div>
 </div>
 
@@ -386,14 +385,12 @@ async function runScan(){
   // ── STEP 1: Raydium BATCH — toți 28 tokeni într-un singur request (~1s) ──
   const rayPrices = await getRaydiumBatchPrices(TOKENS);
 
-  // OO + LI.FI rulează în paralel — economisim timp
-  const OO_SYMS   = ['SOL', 'WIF', 'JUP'];
-  const LIFI_SYMS = ['SOL', 'WIF', 'JUP', 'BONK', 'RAY', 'ORCA', 'PYTH', 'TRUMP', 'PENGU', 'DRIFT'];
-
-  const [ooPrices, lifiPrices] = await Promise.all([
-    getOpenOceanBatchPrices(TOKENS.filter(t => OO_SYMS.includes(t.sym))),
-    getLiFiBatchPrices(TOKENS.filter(t => LIFI_SYMS.includes(t.sym))),
-  ]);
+  // OO — SOL/WIF/JUP
+  const OO_SYMS = ['SOL', 'WIF', 'JUP'];
+  const ooPrices = await getOpenOceanBatchPrices(
+    TOKENS.filter(t => OO_SYMS.includes(t.sym))
+  );
+  const lifiPrices = {}; // LI.FI nu suportă same-chain Solana swap
 
   // Jupiter fallback async în background — nu blochează
   const jupPrices = {};
@@ -469,11 +466,9 @@ async function runScan(){
   // Update API status ORCA/KAMINO/METEORA
   const hasRay  = Object.values(dexPrices).some(d=>d["RAYDIUM"]);
   const hasOO   = Object.values(dexPrices).some(d=>d["OO"]);
-  const hasLifi = Object.values(dexPrices).some(d=>d["LIFI"]);
   const hasJup  = Object.values(dexPrices).some(d=>d["JUP"]);
   setApi("ray",  hasRay  ? `${Object.values(dexPrices).filter(d=>d["RAYDIUM"]).length}tk` : "ERR",  hasRay ?"ok":"err");
   setApi("oo",   hasOO   ? `${Object.values(dexPrices).filter(d=>d["OO"]).length}tk`      : "ERR",  hasOO  ?"ok":"err");
-  setApi("lifi", hasLifi ? `${Object.values(dexPrices).filter(d=>d["LIFI"]).length}tk`    : "ERR",  hasLifi?"ok":"err");
   setApi("jup",  hasJup  ? `${Object.values(dexPrices).filter(d=>d["JUP"]).length}tk`     : "BG",   hasJup ?"ok":"warn");
 }
 
