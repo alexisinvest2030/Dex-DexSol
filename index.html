@@ -87,12 +87,13 @@ input[type=number]:focus{outline:none;border-color:var(--accent)}
 
 <!-- HEADER -->
 <div class="hdr">
-  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.6 — RAY+OO+JUP</span></div>
+  <div class="logo"><div class="logo-dot"></div>DEX·ARB SCANNER <span style="font-size:13px;color:var(--text2)">v1.7 — RAY+OO+LIFI+JUP</span></div>
   <div class="hdr-apis">
     <div class="api-pill warn" id="api-bnb"><div class="api-dot"></div><span id="api-bnb-txt">BNB WS</span></div>
     <div class="api-pill warn" id="api-ray"><div class="api-dot"></div><span id="api-ray-txt">RAYDIUM</span></div>
-    <div class="api-pill warn" id="api-jup"><div class="api-dot"></div><span id="api-jup-txt">JUP</span></div>
-    <div class="api-pill warn" id="api-oo"><div class="api-dot"></div><span id="api-oo-txt">OO</span></div>  </div>
+    <div class="api-pill warn" id="api-oo"><div class="api-dot"></div><span id="api-oo-txt">OO</span></div>
+    <div class="api-pill warn" id="api-lifi"><div class="api-dot"></div><span id="api-lifi-txt">LI.FI</span></div>
+    <div class="api-pill warn" id="api-jup"><div class="api-dot"></div><span id="api-jup-txt">JUP</span></div>  </div>
 </div>
 
 <!-- STATS -->
@@ -286,6 +287,32 @@ async function getOpenOceanBatchPrices(tokens){
   return result;
 }
 
+// LI.FI — meta-agregator Jupiter+FLY+Orca+Meteora pe Solana
+// 200 RPM, CORS open, token SOL nativ = 11111111111111111111111111111111
+const LIFI_KEY = '164136c1-29df-4137-8ccd-471ab09abf42.d1d279f5-cf43-445b-a049-32eaa0c8e91f';
+
+async function getLiFiBatchPrices(tokens){
+  const result = {};
+  // LI.FI: 200 RPM = 3.3/s — putem face 5 în paralel fără probleme
+  const BATCH = 5;
+  for(let i = 0; i < tokens.length; i += BATCH){
+    const batch = tokens.slice(i, i + BATCH);
+    await Promise.all(batch.map(async tk => {
+      // SOL nativ folosește adresa specială LI.FI
+      const toToken = tk.sym === 'SOL'
+        ? '11111111111111111111111111111111'
+        : tk.mint;
+      const url = `https://li.quest/v1/quote?fromChain=SOL&toChain=SOL&fromToken=${USDC_MINT}&toToken=${toToken}&fromAmount=${Math.round(TRADE * 1e6)}&integrator=dex-arb-scanner`;
+      const d = await safeGet(url, 7000);
+      if(!d?.estimate?.toAmount) return;
+      const tokOut = parseFloat(d.estimate.toAmount) / Math.pow(10, tk.dec);
+      if(tokOut > 0) result[tk.sym] = TRADE / tokOut;
+    }));
+    if(i + BATCH < tokens.length) await new Promise(r => setTimeout(r, 400));
+  }
+  return result;
+}
+
 async function getOrcaQuote(tk){
   const amt = Math.round(TRADE * 1e6);
   const target = `https://api.mainnet.orca.so/v2/solana/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&inputAmount=${amt}&slippageBps=50`;
@@ -351,11 +378,14 @@ async function runScan(){
   // ── STEP 1: Raydium BATCH — toți 28 tokeni într-un singur request (~1s) ──
   const rayPrices = await getRaydiumBatchPrices(TOKENS);
 
-  // OpenOcean sincron — 3 tokeni lichizi, 1.1s delay între ei
-  const OO_SYMS = ['SOL', 'WIF', 'JUP'];
-  const ooPrices = await getOpenOceanBatchPrices(
-    TOKENS.filter(t => OO_SYMS.includes(t.sym))
-  );
+  // OO + LI.FI rulează în paralel — economisim timp
+  const OO_SYMS   = ['SOL', 'WIF', 'JUP'];
+  const LIFI_SYMS = ['SOL', 'WIF', 'JUP', 'BONK', 'RAY', 'ORCA', 'PYTH', 'TRUMP', 'PENGU', 'DRIFT'];
+
+  const [ooPrices, lifiPrices] = await Promise.all([
+    getOpenOceanBatchPrices(TOKENS.filter(t => OO_SYMS.includes(t.sym))),
+    getLiFiBatchPrices(TOKENS.filter(t => LIFI_SYMS.includes(t.sym))),
+  ]);
 
   // Jupiter fallback async în background — nu blochează
   const jupPrices = {};
@@ -373,9 +403,10 @@ async function runScan(){
   // Procesare comparații
   TOKENS.forEach(tk => {
     const cex    = wsPrices[tk.sym];
-    const ray    = rayPrices[tk.sym] || null;
-    const jup    = jupPrices[tk.sym] || null;
-    const oo     = ooPrices[tk.sym]  || null;
+    const ray    = rayPrices[tk.sym]  || null;
+    const jup    = jupPrices[tk.sym]  || null;
+    const oo     = ooPrices[tk.sym]   || null;
+    const lifi   = lifiPrices[tk.sym] || null;
     const cexMid = cex?.mid || 0;
 
     const ref = ray || jup;
@@ -388,9 +419,10 @@ async function runScan(){
     }
 
     const dexMap = {};
-    if(sane(ray)) dexMap['RAYDIUM'] = ray;
-    if(sane(jup) && (!ray || Math.abs(jup-ray)/ray <= 0.15)) dexMap['JUP'] = jup;
-    if(sane(oo)  && (!ref || Math.abs(oo-ref)/ref  <= 0.15)) dexMap['OO']  = oo;
+    if(sane(ray))  dexMap['RAYDIUM'] = ray;
+    if(sane(jup)  && (!ref || Math.abs(jup-ref)/ref   <= 0.15)) dexMap['JUP']   = jup;
+    if(sane(oo)   && (!ref || Math.abs(oo-ref)/ref    <= 0.15)) dexMap['OO']    = oo;
+    if(sane(lifi) && (!ref || Math.abs(lifi-ref)/ref  <= 0.15)) dexMap['LIFI']  = lifi;
 
     dexPrices[tk.sym] = dexMap;
     if(Object.keys(dexMap).length > 0) liveCount++;
@@ -427,12 +459,14 @@ async function runScan(){
   document.getElementById('scan-btn').textContent = '⟳ SCAN NOW';
 
   // Update API status ORCA/KAMINO/METEORA
-  const hasRay = Object.values(dexPrices).some(d=>d['RAYDIUM']);
-  const hasJup = Object.values(dexPrices).some(d=>d['JUP']);
-  const hasOO  = Object.values(dexPrices).some(d=>d['OO']);
-  setApi('ray', hasRay ? `${Object.values(dexPrices).filter(d=>d['RAYDIUM']).length}tk` : 'ERR', hasRay?'ok':'err');
-  setApi('jup', hasJup ? `${Object.values(dexPrices).filter(d=>d['JUP']).length}tk`     : 'BG',  hasJup?'ok':'warn');
-  setApi('oo',  hasOO  ? `SOL✓` : 'BG', hasOO?'ok':'warn');
+  const hasRay  = Object.values(dexPrices).some(d=>d["RAYDIUM"]);
+  const hasOO   = Object.values(dexPrices).some(d=>d["OO"]);
+  const hasLifi = Object.values(dexPrices).some(d=>d["LIFI"]);
+  const hasJup  = Object.values(dexPrices).some(d=>d["JUP"]);
+  setApi("ray",  hasRay  ? `${Object.values(dexPrices).filter(d=>d["RAYDIUM"]).length}tk` : "ERR",  hasRay ?"ok":"err");
+  setApi("oo",   hasOO   ? `${Object.values(dexPrices).filter(d=>d["OO"]).length}tk`      : "ERR",  hasOO  ?"ok":"err");
+  setApi("lifi", hasLifi ? `${Object.values(dexPrices).filter(d=>d["LIFI"]).length}tk`    : "ERR",  hasLifi?"ok":"err");
+  setApi("jup",  hasJup  ? `${Object.values(dexPrices).filter(d=>d["JUP"]).length}tk`     : "BG",   hasJup ?"ok":"warn");
 }
 
 // ═══════════════════════════════════════════════════════
@@ -548,7 +582,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 // ═══════════════════════════════════════════════════════
 // AUTO SCAN
 // ═══════════════════════════════════════════════════════
-let autoSec = 10; // 10s — RAY batch ~0.5s + OO 3 tokeni ~3.3s = ~4s scan
+let autoSec = 15; // 15s — RAY batch ~0.5s + OO/LIFI paralel ~3.5s = ~4s scan
 function startAuto(){
   let cnt = autoSec;
   autoTimer = setInterval(()=>{
