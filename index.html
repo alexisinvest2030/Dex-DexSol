@@ -196,9 +196,9 @@ const TOKENS = [
   {sym:'MOODENG',  mint:'ED5nyyWEzpPPiWimP8vYm7sD7TD3LAt3Q3gRTWHzc8FC', pair:'MOODENGUSDC',  dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
   {sym:'ACT',      mint:'GJAFwWjJ3vnTsrQVabjBVK2TYB1YtRCQXRDfDgUnpump', pair:'ACTUSDC',      dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
   {sym:'ZEREBRO',  mint:'8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn', pair:'ZEREBROUSDC',  dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
-  {sym:'GRIFFAIN', mint:'griffinDpUuNQ6FMfFkpSqpFJXFrNuQkqfEmXbpump',   pair:'GRIFFAINUSDC', dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
+  // GRIFFAIN și SWARMS eliminate — mint-uri invalide (Jupiter 400)
+  // MOODENG și PUMP verificate — rămân cu Raydium only
   {sym:'AI16Z',    mint:'HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC', pair:'AI16ZUSDC',    dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
-  {sym:'SWARMS',   mint:'74SBV4zDXxTRgv1pUmGZHMwhpXPZRhg9xePmNPpump',   pair:'SWARMSUSDC',   dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
   {sym:'KMNO',     mint:'KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS', pair:'KMNOUSDC',     dec:6, wFee:0.30,gas:0.001,tier:'tier4'},
 ];
 
@@ -355,26 +355,23 @@ async function runScan(){
   // ── STEP 1: Raydium BATCH — toți 28 tokeni într-un singur request (~1s) ──
   const rayPrices = await getRaydiumBatchPrices(TOKENS);
 
-  // ── STEP 2: OpenOcean batch — tokeni fără preț Raydium sau pentru comparație ──
-  // Rulăm în paralel cu Jupiter pentru tokenii lipsă
+  // ── STEP 2b: Jupiter fallback — doar pentru tokenii lipsă din Raydium ──
   const missingFromRay = TOKENS.filter(t => !rayPrices[t.sym]);
-  
-  // Jupiter — doar pentru tokenii lipsă din Raydium (max 5-8 requests)
   const jupPrices = {};
-  if(missingFromRay.length > 0){
-    await Promise.all(missingFromRay.map(async tk => {
+  if(missingFromRay.length > 0 && missingFromRay.length <= 5){
+    // Max 5 requests Jupiter ca să nu triggeram 429
+    await Promise.all(missingFromRay.slice(0,5).map(async tk => {
       const p = await getJupQuote(tk);
       if(p) jupPrices[tk.sym] = p;
     }));
   }
 
-  // OpenOcean batch — rulat în paralel cu Jupiter de mai sus
-  // pentru top 8 tokeni lichizi ca sursă de comparație
-  const TIER_A_SYMS = ['SOL','WIF','BONK','JUP','RAY','ORCA','PYTH','TRUMP'];
-  const tierA = TOKENS.filter(t => TIER_A_SYMS.includes(t.sym));
-  const ooPrices = await getOpenOceanBatchPrices(tierA);
+  // ── STEP 3: OpenOcean — doar 3 tokeni lichizi (rate limit strict 2 RPS) ──
+  const OO_SYMS = ['SOL','WIF','JUP'];
+  const ooTokens = TOKENS.filter(t => OO_SYMS.includes(t.sym));
+  const ooPrices = await getOpenOceanBatchPrices(ooTokens);
 
-  // ── STEP 3: Procesare comparații ──
+  // ── STEP 4: Procesare comparații ──
   TOKENS.forEach(tk => {
     const cex    = wsPrices[tk.sym];
     const ray    = rayPrices[tk.sym]  || null;
