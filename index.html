@@ -245,9 +245,23 @@ async function safeGet(url, timeout=6000){
   }catch(_){return null;}
 }
 
+// Raydium BATCH — toți tokenii într-un singur request, fără rate limit
+async function getRaydiumBatchPrices(tokens){
+  const mints = tokens.map(t=>t.mint).join(',');
+  const d = await safeGet(`https://api-v3.raydium.io/mint/price?mints=${mints}`, 8000);
+  if(!d?.data) return {};
+  const result = {};
+  tokens.forEach(tk=>{
+    const p = parseFloat(d.data[tk.mint]);
+    if(p && isFinite(p) && p > 0) result[tk.sym] = p;
+  });
+  return result;
+}
+
+// Jupiter quote — folosit selectiv doar când Raydium nu are preț
 async function getJupQuote(tk){
   const amt = Math.round(TRADE * 1e6);
-  const d = await safeGet(`https://lite-api.jup.ag/swap/v1/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&amount=${amt}&slippageBps=50`);
+  const d = await safeGet(`https://lite-api.jup.ag/swap/v1/quote?inputMint=${USDC_MINT}&outputMint=${tk.mint}&amount=${amt}&slippageBps=50`, 6000);
   if(!d?.outAmount||!d?.inAmount) return null;
   const usdcIn = parseInt(d.inAmount)  / 1e6;
   const tokOut = parseInt(d.outAmount) / Math.pow(10, tk.dec);
@@ -255,26 +269,25 @@ async function getJupQuote(tk){
   return usdcIn / tokOut;
 }
 
-// Raydium price API — preț spot direct din pool-uri Raydium
-// Funcționează din browser, CORS open
-async function getRaydiumPrice(tk){
-  const d = await safeGet(`https://api-v3.raydium.io/mint/price?mints=${tk.mint}`, 5000);
-  if(!d?.data) return null;
-  const price = parseFloat(d.data[tk.mint]);
-  if(!price || !isFinite(price) || price <= 0) return null;
-  return price; // returnează direct USD per token
-}
-
-// OpenOcean — meta-agregator Jupiter+Titan, CORS open, zero fees
-// Endpoint v3 Solana: amount fără decimale (ex: 500 USDC = "500")
-async function getOpenOceanQuote(tk){
-  const url = `https://open-api.openocean.finance/v3/solana/quote?inTokenAddress=${USDC_MINT}&outTokenAddress=${tk.mint}&amount=${TRADE}&gasPrice=0.00001&slippage=0.5`;
-  const d = await safeGet(url, 6000);
-  if(!d?.data?.outAmount) return null;
-  const usdcIn = TRADE;
-  const tokOut = parseFloat(d.data.outAmount) / Math.pow(10, tk.dec);
-  if(tokOut <= 0) return null;
-  return usdcIn / tokOut;
+// OpenOcean BATCH — mai mulți tokeni într-un request via price endpoint
+async function getOpenOceanBatchPrices(tokens){
+  // OO v3 price endpoint — returnează prețuri spot rapid
+  const result = {};
+  // Facem câte 5 în paralel cu un singur request per token
+  // (OO nu are batch price, dar are rate limit mai relaxat decât Jupiter)
+  const batches = [];
+  for(let i=0; i<tokens.length; i+=5) batches.push(tokens.slice(i,i+5));
+  for(const batch of batches){
+    await Promise.all(batch.map(async tk=>{
+      const url = `https://open-api.openocean.finance/v3/solana/quote?inTokenAddress=${USDC_MINT}&outTokenAddress=${tk.mint}&amount=${TRADE}&gasPrice=0.00001&slippage=0.5`;
+      const d = await safeGet(url, 5000);
+      if(!d?.data?.outAmount) return;
+      const tokOut = parseFloat(d.data.outAmount) / Math.pow(10, tk.dec);
+      if(tokOut > 0) result[tk.sym] = TRADE / tokOut;
+    }));
+    if(batches.indexOf(batch) < batches.length-1) await new Promise(r=>setTimeout(r,2500));
+  }
+  return result;
 }
 
 async function getOrcaQuote(tk){
@@ -338,41 +351,51 @@ async function runScan(){
 
   const opps = [];
   let liveCount = 0;
-  const delay = ms => new Promise(r => setTimeout(r, ms));
 
-  // ── SCAN PARALEL CU TIER-URI ──────────────────────────
-  // Tier A: top 8 tokeni lichizi — fetch în paralel (~3-5s total)
-  // Tier B: restul 20 tokeni — grupuri de 4 cu 1.5s delay (~10s total)
+  // ── STEP 1: Raydium BATCH — toți 28 tokeni într-un singur request (~1s) ──
+  const rayPrices = await getRaydiumBatchPrices(TOKENS);
+
+  // ── STEP 2: OpenOcean batch — tokeni fără preț Raydium sau pentru comparație ──
+  // Rulăm în paralel cu Jupiter pentru tokenii lipsă
+  const missingFromRay = TOKENS.filter(t => !rayPrices[t.sym]);
+  
+  // Jupiter — doar pentru tokenii lipsă din Raydium (max 5-8 requests)
+  const jupPrices = {};
+  if(missingFromRay.length > 0){
+    await Promise.all(missingFromRay.map(async tk => {
+      const p = await getJupQuote(tk);
+      if(p) jupPrices[tk.sym] = p;
+    }));
+  }
+
+  // OpenOcean batch — rulat în paralel cu Jupiter de mai sus
+  // pentru top 8 tokeni lichizi ca sursă de comparație
   const TIER_A_SYMS = ['SOL','WIF','BONK','JUP','RAY','ORCA','PYTH','TRUMP'];
   const tierA = TOKENS.filter(t => TIER_A_SYMS.includes(t.sym));
-  const tierB = TOKENS.filter(t => !TIER_A_SYMS.includes(t.sym));
+  const ooPrices = await getOpenOceanBatchPrices(tierA);
 
-  async function scanToken(tk, useOO = false){
-    const cex = wsPrices[tk.sym];
-
-    // Doar surse care funcționează din browser:
-    // JUP (always), RAYDIUM (always), OpenOcean (doar Tier A — rate limit 2 RPS)
-    // Orca/Kamino/Meteora eliminate — blocate Cloudflare 403 permanent
-    const fetches = [
-      getJupQuote(tk),
-      getRaydiumPrice(tk),
-      useOO ? getOpenOceanQuote(tk) : Promise.resolve(null),
-    ];
-    const [jup, ray, oo] = await Promise.all(fetches);
-
+  // ── STEP 3: Procesare comparații ──
+  TOKENS.forEach(tk => {
+    const cex    = wsPrices[tk.sym];
+    const ray    = rayPrices[tk.sym]  || null;
+    const jup    = jupPrices[tk.sym]  || null;
+    const oo     = ooPrices[tk.sym]   || null;
     const cexMid = cex?.mid || 0;
+
+    // Prețul de referință: Raydium dacă există, altfel Jupiter
+    const ref = ray || jup;
+    if(!ref) return;
+
     function sane(p){
       if(!p || !isFinite(p) || p <= 0) return false;
-      if(!cexMid) return true;
+      if(!cexMid) return p > ref*0.5 && p < ref*2.0;
       return p > cexMid * 0.50 && p < cexMid * 2.0;
     }
 
     const dexMap = {};
-    if(sane(jup)) dexMap['JUP'] = jup;
-
-    // Raydium și OpenOcean: valide doar dacă diferă <15% față de Jupiter
-    if(sane(ray) && (!jup || Math.abs(ray - jup) / jup <= 0.15)) dexMap['RAYDIUM'] = ray;
-    if(sane(oo)  && (!jup || Math.abs(oo  - jup) / jup <= 0.15)) dexMap['OO']      = oo;
+    if(sane(ray)) dexMap['RAYDIUM'] = ray;
+    if(sane(jup) && (!ray || Math.abs(jup-ray)/ray <= 0.15)) dexMap['JUP'] = jup;
+    if(sane(oo)  && (!ref || Math.abs(oo-ref)/ref  <= 0.15)) dexMap['OO']  = oo;
 
     dexPrices[tk.sym] = dexMap;
     if(Object.keys(dexMap).length > 0) liveCount++;
@@ -395,22 +418,11 @@ async function runScan(){
       const o = calcOpp(tk, cheapestDex[1], expensiveDex[1], cheapestDex[0], expensiveDex[0], 'DEX→DEX');
       if(o.spread > 0.1 && o.spread < 5.0) opps.push(o);
     }
-  }
-
-  // Tier A: toți în paralel cu OpenOcean (~5s)
-  await Promise.all(tierA.map(tk => scanToken(tk, true)));
-
-  // Tier B: grupuri de 4, fără OpenOcean (~10s)
-  for(let i = 0; i < tierB.length; i += 4){
-    const batch = tierB.slice(i, i + 4);
-    await Promise.all(batch.map(tk => scanToken(tk, false)));
-    if(i + 4 < tierB.length) await delay(1500);
-  }
+  });
 
   allOpps = opps.sort((a,b)=>b.netPct-a.netPct);
   document.getElementById('s-live').textContent = liveCount;
 
-  // Alert pentru oportunități profitabile noi
   const profitable = allOpps.filter(o=>o.netPct>MIN_PCT);
   if(profitable.length > 0){
     addAlert('g', `${profitable.length} oportunitate(i) > ${MIN_PCT}% — Best: ${profitable[0].tk.sym} ${profitable[0].dir} ${profitable[0].netPct.toFixed(2)}%`);
